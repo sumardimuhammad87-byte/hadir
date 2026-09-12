@@ -1,0 +1,148 @@
+{
+  "entities": {
+    "SchoolConfig": {
+      "title": "SchoolConfig",
+      "description": "School configuration and branding",
+      "type": "object",
+      "properties": {
+        "namaSekolah": { "type": "string" },
+        "npsn": { "type": "string" },
+        "alamat": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "jamMasuk": { "type": "string" },
+        "jamBatasMasuk": { "type": "string" },
+        "totalHariEfektifSemester": { "type": "number" }
+      }
+    },
+    "Rombel": {
+      "title": "Rombel",
+      "description": "Class / Rombongan Belajar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nama": { "type": "string" },
+        "tingkat": { "type": "string" },
+        "jurusan": { "type": "string" }
+      },
+      "required": ["id", "nama", "tingkat", "jurusan"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student master data",
+      "type": "object",
+      "properties": {
+        "nipd": { "type": "string" },
+        "nisn": { "type": "string" },
+        "nama": { "type": "string" },
+        "jk": { "type": "string" },
+        "rombelId": { "type": "string" }
+      },
+      "required": ["nipd", "nama", "rombelId"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "User account for authentication and role control",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "nama": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["id", "nama", "role"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher profile and data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nama": { "type": "string" }
+      },
+      "required": ["id", "nama"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "School subjects",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "kode": { "type": "string" },
+        "nama": { "type": "string" }
+      },
+      "required": ["id", "kode", "nama"]
+    },
+    "ScheduleItem": {
+      "title": "ScheduleItem",
+      "description": "Lesson schedule items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rombelId": { "type": "string" },
+        "hari": { "type": "string" }
+      },
+      "required": ["id", "rombelId", "hari"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Daily attendance record per student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nipd": { "type": "string" },
+        "tanggal": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "nipd", "tanggal", "status"]
+    },
+    "AttendanceToken": {
+      "title": "AttendanceToken",
+      "description": "Class self-attendance token",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "token": { "type": "string" },
+        "rombelId": { "type": "string" }
+      },
+      "required": ["id", "token", "rombelId"]
+    }
+  },
+  "firestore": {
+    "/school_config/{configId}": {
+      "schema": "SchoolConfig",
+      "description": "School settings"
+    },
+    "/rombels/{rombelId}": {
+      "schema": "Rombel",
+      "description": "Classes"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Students"
+    },
+    "/users/{userId}": {
+      "schema": "UserAccount",
+      "description": "Users"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Teachers"
+    },
+    "/subjects/{subjectId}": {
+      "schema": "Subject",
+      "description": "Subjects"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "ScheduleItem",
+      "description": "Schedules"
+    },
+    "/attendance_records/{recordId}": {
+      "schema": "AttendanceRecord",
+      "description": "Attendance logs"
+    },
+    "/tokens/{tokenId}": {
+      "schema": "AttendanceToken",
+      "description": "Tokens"
+    }
+  }
+}

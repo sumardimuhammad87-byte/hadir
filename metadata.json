@@ -1,0 +1,10 @@
+{
+  "name": "Remix Sistem Absensi Siswa QR Code \u0026 Rombel",
+  "description": "Aplikasi Absensi Siswa berbasis Web \u0026 Mobile dengan Hak Akses (Role-Based), Scan QR Code Kamera, Token Absensi, Kelola Rombel \u0026 Siswa, Absensi Manual, Cetak Laporan PDF/Excel \u0026 Kalkulasi Persentase.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -38,25 +38,10 @@ function safeSetItem(key: string, value: string): boolean {
   } catch (err: any) {
     console.warn(`[Storage Warning] Gagal menyimpan key "${key}":`, err?.message || err);
 
-    // If quota exceeded and this is school config, try stripping bloated logo data
-    if (key === KEYS.CONFIG) {
-      try {
-        const parsed = JSON.parse(value);
-        if (parsed.logoUrl && parsed.logoUrl.length > 5000) {
-          // Fallback to initial logo to preserve vital text configuration
-          parsed.logoUrl = INITIAL_SCHOOL_CONFIG.logoUrl;
-          localStorage.setItem(key, JSON.stringify(parsed));
-          console.warn('[Storage] Berhasil menyelamatkan data sekolah dengan mereset logo ke versi ringan.');
-          return true;
-        }
-      } catch (innerErr) {
-        console.error('[Storage Error] Gagal recovery config:', innerErr);
-      }
-    }
-
-    // Try cleaning expired tokens or redundant session data to free up space
+    // Try cleaning expired tokens or redundant session data to free up space, never corrupting user data
     try {
       localStorage.removeItem(KEYS.CURRENT_USER);
+      localStorage.removeItem(KEYS.TOKENS);
       localStorage.setItem(key, value);
       return true;
     } catch {
@@ -72,6 +57,20 @@ export function loadSchoolConfig(): SchoolConfig {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.namaSekolah) {
+        // Automatically migrate if saved with previous default name
+        if (
+          parsed.namaSekolah === 'SMK KESEHATAN BHAKTI HUSADA' ||
+          parsed.namaSekolah.toLowerCase().includes('bhakti husada')
+        ) {
+          parsed.namaSekolah = 'SMK Bakti Putra Mandiri';
+          if (parsed.email && parsed.email.includes('husada')) {
+            parsed.email = 'info@smkbaktiputramandiri.sch.id';
+          }
+          if (parsed.website && parsed.website.includes('husada')) {
+            parsed.website = 'www.smkbaktiputramandiri.sch.id';
+          }
+          saveSchoolConfig(parsed);
+        }
         return parsed;
       }
     }
@@ -317,11 +316,12 @@ export function recordAttendance(
   recordedByName: string,
   tokenUsed?: string,
   keterangan?: string,
-  targetDate?: string
+  targetDate?: string,
+  targetTime?: string
 ): AttendanceRecord[] {
   const currentRecords = loadAttendanceRecords();
   const dateStr = targetDate || getTodayDateStr();
-  const timeStr = getCurrentTimeStr();
+  const timeStr = targetTime || getCurrentTimeStr();
 
   const existingIndex = currentRecords.findIndex(
     (r) => r.nipd === nipd && r.tanggal === dateStr
@@ -351,6 +351,43 @@ export function recordAttendance(
 
   saveAttendanceRecords(nextRecords);
   return nextRecords;
+}
+
+// Save or overwrite a single attendance record directly (e.g. from Admin CRUD modal)
+export function saveAttendanceRecordDirect(record: AttendanceRecord): AttendanceRecord[] {
+  const currentRecords = loadAttendanceRecords();
+  // Filter out any existing record with the same ID, or same student and date (to prevent duplicates if date was modified)
+  const filtered = currentRecords.filter(
+    (r) => r.id !== record.id && !(r.nipd === record.nipd && r.tanggal === record.tanggal)
+  );
+  const nextRecords = [record, ...filtered];
+  saveAttendanceRecords(nextRecords);
+  return nextRecords;
+}
+
+// Delete an attendance record by ID (e.g. from Admin CRUD)
+export function deleteAttendanceRecord(recordId: string): AttendanceRecord[] {
+  const currentRecords = loadAttendanceRecords();
+  const filtered = currentRecords.filter((r) => r.id !== recordId);
+  saveAttendanceRecords(filtered);
+  return filtered;
+}
+
+// Delete attendance record by student NIPD and date (Resets student to 'Belum Absen')
+export function deleteAttendanceByStudentAndDate(nipd: string, tanggal: string): AttendanceRecord[] {
+  const currentRecords = loadAttendanceRecords();
+  const filtered = currentRecords.filter((r) => !(r.nipd === nipd && r.tanggal === tanggal));
+  saveAttendanceRecords(filtered);
+  return filtered;
+}
+
+// Delete multiple attendance records in batch
+export function deleteAttendanceRecordsBatch(recordIds: string[]): AttendanceRecord[] {
+  const idSet = new Set(recordIds);
+  const currentRecords = loadAttendanceRecords();
+  const filtered = currentRecords.filter((r) => !idSet.has(r.id));
+  saveAttendanceRecords(filtered);
+  return filtered;
 }
 
 // Student Self Check-in with Token validation

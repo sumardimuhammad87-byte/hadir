@@ -22,7 +22,9 @@ import {
   saveTeacherList,
   saveSubjectList,
   saveScheduleList,
+  FullBackupPayload,
 } from '../utils/storage';
+import { firestoreRestoreFullBackup } from '../utils/firestoreSync';
 import {
   Database,
   Download,
@@ -34,7 +36,9 @@ import {
   RefreshCw,
   X,
   ShieldCheck,
+  Cloud,
 } from 'lucide-react';
+
 
 interface DataBackupModalProps {
   isOpen: boolean;
@@ -161,8 +165,9 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
     reader.readAsText(file);
   };
 
-  // 3. Force Re-save to browser storage
-  const handleForceResave = () => {
+  // 3. Force Re-save to browser storage and Cloud Firebase
+  const handleForceResave = async () => {
+    setIsProcessing(true);
     saveSchoolConfig(schoolConfig);
     saveStudentList(students);
     saveRombelList(rombels);
@@ -173,9 +178,31 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
     saveSubjectList(subjects);
     saveScheduleList(schedules);
 
-    setSuccessMsg('Semua data saat ini (siswa, guru, mapel, jadwal, akun) telah disimpan ulang secara permanen ke browser!');
-    onShowToast('Penyimpanan lokal berhasil disinkronkan!', 'success');
-    setTimeout(() => setSuccessMsg(null), 4000);
+    const payload: FullBackupPayload = {
+      version: '1.2',
+      exportedAt: new Date().toISOString(),
+      schoolConfig,
+      rombels,
+      students,
+      users,
+      attendanceRecords,
+      tokens,
+      teachers,
+      subjects,
+      schedules,
+    };
+
+    try {
+      await firestoreRestoreFullBackup(payload);
+      setSuccessMsg('Semua data berhasil disimpan ke browser dan disinkronkan ke Cloud Firebase (aktif di semua perangkat)!');
+      onShowToast('Data berhasil disinkronkan ke Cloud & Browser!', 'success');
+    } catch {
+      setSuccessMsg('Data tersimpan di browser, sinkronisasi cloud akan dicoba ulang otomatis.');
+      onShowToast('Data tersimpan di browser!', 'info');
+    } finally {
+      setIsProcessing(false);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    }
   };
 
   return (
@@ -263,12 +290,13 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
               <span>Sekolah: <strong>{schoolConfig.namaSekolah}</strong></span>
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={handleForceResave}
-                className="text-[11px] text-emerald-700 hover:text-emerald-800 font-bold flex items-center gap-1 cursor-pointer"
-                title="Paksa tulis ulang semua data ke browser storage"
+                className="text-[11px] text-emerald-700 hover:text-emerald-800 font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="Sinkronkan & simpan permanen ke Cloud Database & browser"
               >
-                <RefreshCw className="w-3 h-3" />
-                Simpan Ulang
+                <RefreshCw className={`w-3 h-3 ${isProcessing ? 'animate-spin' : ''}`} />
+                <span>{isProcessing ? 'Menyinkronkan...' : 'Sinkronkan ke Cloud & Browser'}</span>
               </button>
             </div>
           </div>
@@ -345,13 +373,14 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
           </div>
 
           {/* Info note */}
-          <div className="text-[11px] text-slate-400 bg-slate-50 p-3 rounded-lg border border-slate-100 flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-            <span>
-              <strong>Tips Penyimpanan:</strong> Data absensi sekolah tersimpan di browser ini. Agar
-              data selalu aman saat ganti perangkat atau ganti browser, sangat disarankan untuk
-              mengunduh berkas cadangan secara berkala.
-            </span>
+          <div className="text-[12px] text-emerald-800 bg-emerald-50/80 p-3.5 rounded-xl border border-emerald-200/80 flex items-start gap-2.5">
+            <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="space-y-1 text-xs">
+              <p className="font-bold text-emerald-900">Cloud Firebase Aktif & Sinkron Otomatis</p>
+              <p className="text-emerald-700 leading-relaxed">
+                Setelah Admin mengunggah cadangan atau mengubah data (guru, siswa, logo, jadwal), data otomatis tersimpan di Cloud Firestore dan langsung tersinkronisasi ke seluruh perangkat. Pengguna lain di HP atau laptop berbeda <strong>cukup membuka aplikasi dan langsung menggunakannya</strong> tanpa perlu memulihkan berkas cadangan lagi.
+              </p>
+            </div>
           </div>
         </div>
 

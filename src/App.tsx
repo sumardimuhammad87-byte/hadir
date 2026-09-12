@@ -29,6 +29,10 @@ import {
   ensureStudentUserAccount,
   removeStudentUserAccount,
   recordAttendance,
+  saveAttendanceRecordDirect,
+  deleteAttendanceRecord,
+  deleteAttendanceByStudentAndDate,
+  deleteAttendanceRecordsBatch,
   validateTokenAndCheckIn,
   getTodayDateStr,
   getCurrentTimeStr,
@@ -57,14 +61,20 @@ import {
   firestoreDeleteSchedule,
   firestoreSaveAttendanceRecord,
   firestoreSaveAttendanceRecordsBatch,
+  firestoreDeleteAttendanceRecord,
+  firestoreDeleteAttendanceRecordsBatch,
   firestoreSaveToken,
   firestoreDeleteToken,
   firestoreSaveSchoolConfig,
+  firestoreSaveUsersBatch,
+  firestoreSaveStudentsBatch,
+  firestoreRestoreFullBackup,
 } from './utils/firestoreSync';
 
 // Subcomponents
 import { LoginPage } from './components/LoginPage';
 import { ClassAttendanceTab } from './components/ClassAttendanceTab';
+import { ManageAttendanceTab } from './components/ManageAttendanceTab';
 import { ManageStudentsTab } from './components/ManageStudentsTab';
 import { ManageRombelTab } from './components/ManageRombelTab';
 import { ManageUsersTab } from './components/ManageUsersTab';
@@ -106,6 +116,7 @@ import {
   BookOpen,
   CalendarDays,
   UserPlus,
+  ClipboardEdit,
 } from 'lucide-react';
 
 export default function App() {
@@ -220,6 +231,16 @@ export default function App() {
 
   // Real-time Cloud Sync with Firebase Firestore (Persists across devices)
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(() => {
+    try {
+      const cfg = localStorage.getItem('absensi_school_config_v1');
+      if (cfg) {
+        const parsed = JSON.parse(cfg);
+        if (parsed && parsed.namaSekolah) return false;
+      }
+    } catch {}
+    return true;
+  });
 
   useEffect(() => {
     const unsubscribe = subscribeToFirestore(
@@ -260,6 +281,10 @@ export default function App() {
           setSchoolConfig(data);
           setIsCloudSynced(true);
         },
+        onInitialSyncComplete: () => {
+          setIsInitialLoading(false);
+          setIsCloudSynced(true);
+        },
       },
       {
         students,
@@ -296,10 +321,14 @@ export default function App() {
   const handleUpdateSingleAttendance = (
     nipd: string,
     status: 'hadir' | 'sakit' | 'izin' | 'alfa',
-    keterangan?: string
+    keterangan?: string,
+    targetDate?: string,
+    targetTime?: string
   ) => {
     const student = students.find((s) => s.nipd === nipd);
     if (!student) return;
+
+    const dateToUse = targetDate || getTodayDateStr();
 
     const updated = recordAttendance(
       nipd,
@@ -313,23 +342,25 @@ export default function App() {
       currentUser.role,
       currentUser.nama,
       undefined,
-      keterangan
+      keterangan,
+      dateToUse,
+      targetTime
     );
     setAttendanceRecords(updated);
-    const today = getTodayDateStr();
-    const updatedRec = updated.find((r) => r.nipd === nipd && r.tanggal === today);
+    const updatedRec = updated.find((r) => r.nipd === nipd && r.tanggal === dateToUse);
     if (updatedRec) {
       firestoreSaveAttendanceRecord(updatedRec);
     }
     showToast(
-      `Status presensi ${student.nama} diperbarui menjadi: ${status.toUpperCase()}`,
+      `Status presensi ${student.nama} diperbarui menjadi: ${status.toUpperCase()} (${dateToUse} ${targetTime || ''})`,
       'info'
     );
   };
 
   const handleBulkUpdateAttendance = (
     nipds: string[],
-    status: 'hadir' | 'sakit' | 'izin' | 'alfa'
+    status: 'hadir' | 'sakit' | 'izin' | 'alfa',
+    targetDate?: string
   ) => {
     let current = [...attendanceRecords];
     const isOfficer =
@@ -344,6 +375,8 @@ export default function App() {
         ? 'manual_guru'
         : 'manual_pengurus';
 
+    const dateToUse = targetDate || getTodayDateStr();
+
     nipds.forEach((nipd) => {
       const student = students.find((s) => s.nipd === nipd);
       if (student) {
@@ -357,17 +390,51 @@ export default function App() {
           status,
           metode,
           currentUser.role,
-          currentUser.nama
+          currentUser.nama,
+          undefined,
+          undefined,
+          dateToUse
         );
       }
     });
     setAttendanceRecords(current);
-    const today = getTodayDateStr();
-    const batchRecs = current.filter((r) => nipds.includes(r.nipd) && r.tanggal === today);
+    const batchRecs = current.filter((r) => nipds.includes(r.nipd) && r.tanggal === dateToUse);
     if (batchRecs.length > 0) {
       firestoreSaveAttendanceRecordsBatch(batchRecs);
     }
-    showToast(`${nipds.length} siswa ditandai ${status.toUpperCase()}`, 'success');
+    showToast(`${nipds.length} siswa ditandai ${status.toUpperCase()} (${dateToUse})`, 'success');
+  };
+
+  // Dedicated CRUD Handlers for Attendance (Pusat Koreksi & Kelola Kesalahan Absen)
+  const handleSaveAttendanceRecord = (record: AttendanceRecord) => {
+    const next = saveAttendanceRecordDirect(record);
+    setAttendanceRecords(next);
+    firestoreSaveAttendanceRecord(record);
+    showToast(`Rekaman presensi siswa berhasil disimpan & disinkronkan.`, 'success');
+  };
+
+  const handleDeleteAttendanceRecord = (recordId: string) => {
+    const next = deleteAttendanceRecord(recordId);
+    setAttendanceRecords(next);
+    firestoreDeleteAttendanceRecord(recordId);
+    showToast('Rekaman presensi dihapus. Status siswa kembali menjadi "Belum Absen".', 'info');
+  };
+
+  const handleBatchDeleteAttendanceRecords = (recordIds: string[]) => {
+    const next = deleteAttendanceRecordsBatch(recordIds);
+    setAttendanceRecords(next);
+    firestoreDeleteAttendanceRecordsBatch(recordIds);
+    showToast(`${recordIds.length} rekaman presensi berhasil dihapus.`, 'info');
+  };
+
+  const handleResetStudentAttendance = (nipd: string, tanggal: string) => {
+    const targetRec = attendanceRecords.find((r) => r.nipd === nipd && r.tanggal === tanggal);
+    const next = deleteAttendanceByStudentAndDate(nipd, tanggal);
+    setAttendanceRecords(next);
+    if (targetRec) {
+      firestoreDeleteAttendanceRecord(targetRec.id);
+    }
+    showToast(`Presensi tanggal ${tanggal} berhasil direset menjadi "Belum Absen".`, 'info');
   };
 
   // QR Scan Callback (from camera or file upload)
@@ -590,10 +657,19 @@ export default function App() {
     firestoreDeleteTeacher(id);
 
     if (teacherToDelete) {
+      // Find matching user account to remove from Firestore
+      const userToDelete = users.find(
+        (u) =>
+          u.id === `USR-GUR-${teacherToDelete.id}` ||
+          (teacherToDelete.email && u.email?.toLowerCase().trim() === teacherToDelete.email.toLowerCase().trim()) ||
+          (teacherToDelete.nip && u.username === teacherToDelete.nip.replace(/\s+/g, ''))
+      );
+      if (userToDelete && userToDelete.role !== 'admin') {
+        firestoreDeleteUser(userToDelete.id);
+      }
       const updatedUsers = removeTeacherUserAccount(teacherToDelete.email, teacherToDelete.nip, users);
       setUsers(updatedUsers);
       saveUserList(updatedUsers);
-      firestoreDeleteUser(`USR-GUR-${teacherToDelete.id}`);
     }
 
     showToast('Data guru berhasil dihapus.', 'info');
@@ -656,6 +732,76 @@ export default function App() {
     showToast('Pengaturan profil sekolah & logo berhasil disimpan secara permanen.', 'success');
   };
 
+  const handleDataRestored = async (restored: any) => {
+    if (restored.schoolConfig) {
+      setSchoolConfig(restored.schoolConfig);
+      saveSchoolConfig(restored.schoolConfig);
+    }
+    if (Array.isArray(restored.students)) {
+      setStudents(restored.students);
+      saveStudentList(restored.students);
+    }
+    if (Array.isArray(restored.rombels)) {
+      setRombels(restored.rombels);
+      saveRombelList(restored.rombels);
+    }
+    if (Array.isArray(restored.users)) {
+      setUsers(restored.users);
+      saveUserList(restored.users);
+    }
+    if (Array.isArray(restored.attendanceRecords)) {
+      setAttendanceRecords(restored.attendanceRecords);
+      saveAttendanceRecords(restored.attendanceRecords);
+    }
+    if (Array.isArray(restored.tokens)) {
+      setTokens(restored.tokens);
+      saveTokens(restored.tokens);
+    }
+    if (Array.isArray(restored.teachers)) {
+      setTeachers(restored.teachers);
+      saveTeacherList(restored.teachers);
+    }
+    if (Array.isArray(restored.subjects)) {
+      setSubjects(restored.subjects);
+      saveSubjectList(restored.subjects);
+    }
+    if (Array.isArray(restored.schedules)) {
+      setSchedules(restored.schedules);
+      saveScheduleList(restored.schedules);
+    }
+
+    showToast('Menyinkronkan data pemulihan ke Cloud Database...', 'info');
+    try {
+      const ok = await firestoreRestoreFullBackup(restored);
+      if (ok) {
+        showToast('Data pemulihan berhasil disinkronkan ke Cloud & semua perangkat!', 'success');
+      } else {
+        showToast('Data pemulihan tersimpan di browser lokal.', 'info');
+      }
+    } catch (e) {
+      console.error('Error syncing restore to cloud:', e);
+    }
+  };
+
+  // Initial Cloud Sync Splash Screen for fresh devices
+  if (isInitialLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mb-5 shadow-lg shadow-indigo-500/10 animate-pulse">
+          <Building2 className="w-8 h-8 text-indigo-400" />
+        </div>
+        <h2 className="text-xl font-bold tracking-tight text-white mb-2">SMK Bakti Putra Mandiri</h2>
+        <p className="text-sm text-slate-400 max-w-sm mb-6 leading-relaxed">
+          Menghubungkan ke Cloud Firestore dan menyelaraskan data sekolah...
+        </p>
+        <div className="flex items-center gap-2.5 text-xs font-semibold text-indigo-300 bg-indigo-950/80 px-4 py-2 rounded-full border border-indigo-800/60 shadow-inner">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          <span>Sinkronisasi otomatis multi-perangkat</span>
+        </div>
+      </div>
+    );
+  }
+
   // If user is not authenticated, display dedicated Login Page
   if (!currentUser) {
     return (
@@ -700,17 +846,7 @@ export default function App() {
             teachers={teachers}
             subjects={subjects}
             schedules={schedules}
-            onDataRestored={(restored) => {
-              setSchoolConfig(restored.schoolConfig);
-              setStudents(restored.students);
-              setRombels(restored.rombels);
-              setUsers(restored.users);
-              setAttendanceRecords(restored.attendanceRecords);
-              setTokens(restored.tokens);
-              if (restored.teachers) setTeachers(restored.teachers);
-              if (restored.subjects) setSubjects(restored.subjects);
-              if (restored.schedules) setSchedules(restored.schedules);
-            }}
+            onDataRestored={handleDataRestored}
             onShowToast={showToast}
           />
         )}
@@ -881,6 +1017,23 @@ export default function App() {
                     <UserCheck className="w-4 h-4" />
                     Presensi Per Kelas
                   </button>
+
+                  {/* TAB: CRUD & Koreksi Absen (Admin & Walas/Guru) */}
+                  {(currentUser.role === 'admin' || currentUser.role === 'walas' || currentUser.role === 'guru') && (
+                    <button
+                      id="tab-nav-manage-attendance"
+                      onClick={() => setActiveTab('manage_attendance')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                        activeTab === 'manage_attendance'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                      title="Pusat kelola & koreksi presensi untuk meminimalisir kesalahan absen"
+                    >
+                      <ClipboardEdit className="w-4 h-4 text-indigo-400" />
+                      Koreksi & CRUD Absen
+                    </button>
+                  )}
 
                   <button
                     id="tab-nav-students"
@@ -1085,6 +1238,20 @@ export default function App() {
                     <UserCheck className="w-4 h-4" />
                     Presensi Per Kelas
                   </button>
+                  {(currentUser.role === 'admin' || currentUser.role === 'walas' || currentUser.role === 'guru') && (
+                    <button
+                      onClick={() => {
+                        setActiveTab('manage_attendance');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full text-left py-2 px-3 rounded-lg text-xs font-semibold flex items-center gap-2 ${
+                        activeTab === 'manage_attendance' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <ClipboardEdit className="w-4 h-4 text-indigo-400" />
+                      Koreksi & CRUD Absen
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setActiveTab('students');
@@ -1271,10 +1438,30 @@ export default function App() {
             students={students}
             attendanceRecords={attendanceRecords}
             onUpdateAttendance={handleUpdateSingleAttendance}
+            onResetAttendance={handleResetStudentAttendance}
+            onSaveRecord={handleSaveAttendanceRecord}
+            onEditAttendanceRecord={() => setActiveTab('manage_attendance')}
             onBulkUpdateAttendance={handleBulkUpdateAttendance}
             onOpenScanner={() => setIsScannerOpen(true)}
             onOpenTokenManager={() => setIsTokenManagerOpen(true)}
             onSelectStudentCard={(student) => setSelectedStudentForCard(student)}
+            onNavigateToCrud={() => setActiveTab('manage_attendance')}
+            schoolConfig={schoolConfig}
+          />
+        )}
+
+        {/* TAB 1B: Manage Attendance Master Tab (CRUD & Koreksi Presensi Admin) */}
+        {activeTab === 'manage_attendance' && (currentUser.role === 'admin' || currentUser.role === 'walas' || currentUser.role === 'guru') && (
+          <ManageAttendanceTab
+            currentUser={currentUser}
+            students={students}
+            rombels={rombels}
+            attendanceRecords={attendanceRecords}
+            onSaveRecord={handleSaveAttendanceRecord}
+            onDeleteRecord={handleDeleteAttendanceRecord}
+            onBatchDeleteRecords={handleBatchDeleteAttendanceRecords}
+            onResetStudentAttendance={handleResetStudentAttendance}
+            schoolConfig={schoolConfig}
           />
         )}
 
@@ -1301,9 +1488,11 @@ export default function App() {
             onAddUser={handleAddUser}
             onUpdateUser={handleUpdateUser}
             onDeleteUser={handleDeleteUser}
+            onUpdateStudent={handleUpdateStudent}
             onSyncMassStudentAccounts={(updatedList) => {
               setUsers(updatedList);
               saveUserList(updatedList);
+              firestoreSaveUsersBatch(updatedList);
             }}
             onShowToast={showToast}
           />
@@ -1351,17 +1540,25 @@ export default function App() {
           />
         )}
 
-        {/* TAB 4: Manage Users & Accounts Tab */}
+        {/* TAB 4: Manage Users & Accounts Tab (CRUD Pengguna & Koreksi Nama) */}
         {activeTab === 'users' && (currentUser.role === 'admin' || currentUser.role === 'walas' || currentUser.role === 'guru') && (
           <ManageUsersTab
             currentUser={currentUser}
             users={users}
             students={students}
             rombels={rombels}
+            teachers={teachers}
             onAddUser={handleAddUser}
             onUpdateUser={handleUpdateUser}
             onDeleteUser={handleDeleteUser}
-            onSyncMassStudentAccounts={(updatedList) => setUsers(updatedList)}
+            onUpdateStudent={handleUpdateStudent}
+            onUpdateTeacher={handleUpdateTeacher}
+            onSyncMassStudentAccounts={(updatedList) => {
+              setUsers(updatedList);
+              saveUserList(updatedList);
+              firestoreSaveUsersBatch(updatedList);
+            }}
+            onShowToast={showToast}
           />
         )}
 
@@ -1472,17 +1669,7 @@ export default function App() {
           teachers={teachers}
           subjects={subjects}
           schedules={schedules}
-          onDataRestored={(restored) => {
-            setSchoolConfig(restored.schoolConfig);
-            setStudents(restored.students);
-            setRombels(restored.rombels);
-            setUsers(restored.users);
-            setAttendanceRecords(restored.attendanceRecords);
-            setTokens(restored.tokens);
-            if (restored.teachers) setTeachers(restored.teachers);
-            if (restored.subjects) setSubjects(restored.subjects);
-            if (restored.schedules) setSchedules(restored.schedules);
-          }}
+          onDataRestored={handleDataRestored}
           onShowToast={showToast}
         />
       )}

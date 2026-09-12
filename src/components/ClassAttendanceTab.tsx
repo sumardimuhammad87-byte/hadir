@@ -8,7 +8,7 @@ import {
   UserAccount,
   SchoolConfig,
 } from '../types';
-import { getCurrentTimeStr } from '../utils/storage';
+import { getCurrentTimeStr, getTodayDateStr } from '../utils/storage';
 import {
   CheckCircle2,
   AlertCircle,
@@ -26,6 +26,11 @@ import {
   Users,
   Sparkles,
   Lock,
+  RotateCcw,
+  Edit,
+  ClipboardEdit,
+  X,
+  Save,
 } from 'lucide-react';
 
 interface ClassAttendanceTabProps {
@@ -35,11 +40,15 @@ interface ClassAttendanceTabProps {
   attendanceRecords: AttendanceRecord[];
   selectedDate?: string;
   onDateChange?: (date: string) => void;
-  onUpdateAttendance: (nipd: string, status: AttendanceStatus, keterangan?: string) => void;
-  onBulkUpdateAttendance?: (nipds: string[], status: AttendanceStatus) => void;
+  onUpdateAttendance: (nipd: string, status: AttendanceStatus, keterangan?: string, targetDate?: string, targetTime?: string) => void;
+  onResetAttendance?: (nipd: string, targetDate: string) => void;
+  onSaveRecord?: (record: AttendanceRecord) => void;
+  onEditAttendanceRecord?: (record: AttendanceRecord) => void;
+  onBulkUpdateAttendance?: (nipds: string[], status: AttendanceStatus, targetDate?: string) => void;
   onOpenScanner: () => void;
   onOpenTokenManager: () => void;
   onSelectStudentCard: (student: Student) => void;
+  onNavigateToCrud?: () => void;
   schoolConfig?: SchoolConfig;
 }
 
@@ -51,16 +60,86 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
   selectedDate: propSelectedDate,
   onDateChange: propOnDateChange,
   onUpdateAttendance,
+  onResetAttendance,
+  onSaveRecord,
+  onEditAttendanceRecord,
   onBulkUpdateAttendance,
   onOpenScanner,
   onOpenTokenManager,
   onSelectStudentCard,
+  onNavigateToCrud,
   schoolConfig,
 }) => {
   // Date state (internal or controlled via props)
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getTodayDateStr();
   const [internalDate, setInternalDate] = useState<string>(todayStr);
   const selectedDate = propSelectedDate || internalDate;
+
+  // State for Editing Date & Time directly from Class Attendance view
+  const [editingDateTimeStudent, setEditingDateTimeStudent] = useState<{
+    student: Student;
+    record?: AttendanceRecord;
+  } | null>(null);
+  const [modalDate, setModalDate] = useState<string>(todayStr);
+  const [modalTime, setModalTime] = useState<string>(getCurrentTimeStr());
+  const [modalStatus, setModalStatus] = useState<AttendanceStatus>('hadir');
+  const [modalNote, setModalNote] = useState<string>('');
+
+  const getYesterdayDateStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const getTwoDaysAgoDateStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 2);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const timePresets = [
+    { label: '06:45', desc: 'Pagi' },
+    { label: '07:00', desc: 'Tepat' },
+    { label: '07:15', desc: 'Tepat' },
+    { label: '07:30', desc: 'Batas' },
+    { label: '07:45', desc: 'Telat' },
+    { label: '08:00', desc: 'Telat' },
+    { label: '12:00', desc: 'Siang' },
+  ];
+
+  const handleOpenDateTimeEdit = (std: Student, rec?: AttendanceRecord) => {
+    setEditingDateTimeStudent({ student: std, record: rec });
+    setModalDate(rec?.tanggal || selectedDate || todayStr);
+    setModalTime(rec?.waktu && rec.waktu !== '-' ? rec.waktu : getCurrentTimeStr());
+    setModalStatus(rec?.status || 'hadir');
+    setModalNote(rec?.keterangan || '');
+  };
+
+  const handleSaveDateTimeEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDateTimeStudent) return;
+    const { student, record } = editingDateTimeStudent;
+
+    if (onSaveRecord) {
+      const updated: AttendanceRecord = {
+        id: record?.id || `ATT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        nipd: student.nipd,
+        rombelId: student.rombelId,
+        tanggal: modalDate,
+        waktu: modalTime,
+        status: modalStatus,
+        metode: record?.metode || (currentUser.role === 'admin' ? 'manual_admin' : currentUser.role === 'guru' ? 'manual_guru' : 'manual_pengurus'),
+        recordedByName: `${currentUser.nama} (Koreksi Jam/Tgl)`,
+        recordedByRole: currentUser.role,
+        keterangan: modalNote.trim() || undefined,
+      };
+      onSaveRecord(updated);
+    } else {
+      onUpdateAttendance(student.nipd, modalStatus, modalNote.trim() || undefined, modalDate, modalTime);
+    }
+
+    setEditingDateTimeStudent(null);
+  };
 
   const handleDateChange = (newDate: string) => {
     if (propOnDateChange) {
@@ -138,7 +217,23 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
     }
     if (!canEdit) return;
 
-    onUpdateAttendance(student.nipd, newStatus);
+    onUpdateAttendance(student.nipd, newStatus, undefined, selectedDate);
+  };
+
+  // Reset status siswa ke 'Belum Absen' (Hapus kesalahan presensi)
+  const handleResetStatus = (student: Student) => {
+    if (!canEdit) return;
+    if (isRombelLeader && student.rombelId !== assignedRombelId) return;
+
+    if (
+      window.confirm(
+        `Reset data presensi ${student.nama} pada tanggal ${selectedDate}?\n\nStatus siswa akan kembali menjadi "Belum Absen" untuk meminimalisir kesalahan absen.`
+      )
+    ) {
+      if (onResetAttendance) {
+        onResetAttendance(student.nipd, selectedDate);
+      }
+    }
   };
 
   // Ubah catatan / keterangan
@@ -148,7 +243,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
 
     const existingRec = recordMap.get(student.nipd);
     const currentStatus = existingRec ? existingRec.status : 'hadir';
-    onUpdateAttendance(student.nipd, currentStatus, note);
+    onUpdateAttendance(student.nipd, currentStatus, note, selectedDate);
   };
 
   // Set Semua Siswa di Rombel Hadir (Fitur Massal Manual oleh Walas/Ketua/Sekretaris/Admin)
@@ -157,10 +252,10 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
     const targetNipds = currentStudents.map((s) => s.nipd);
 
     if (onBulkUpdateAttendance) {
-      onBulkUpdateAttendance(targetNipds, 'hadir');
+      onBulkUpdateAttendance(targetNipds, 'hadir', selectedDate);
     } else {
       targetNipds.forEach((nipd) => {
-        onUpdateAttendance(nipd, 'hadir');
+        onUpdateAttendance(nipd, 'hadir', undefined, selectedDate);
       });
     }
   };
@@ -364,6 +459,18 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
         {/* Right: General Controls (Shown if not already in role banner, or for admin/guru) */}
         {!isRombelLeader && (
           <div className="flex flex-wrap items-center gap-2">
+            {currentUser.role === 'admin' && onNavigateToCrud && (
+              <button
+                id="btn-shortcut-to-attendance-crud"
+                onClick={onNavigateToCrud}
+                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                title="Buka panel lengkap Kelola & Koreksi Absen (CRUD Presensi)"
+              >
+                <ClipboardEdit className="w-4 h-4 text-indigo-600" />
+                <span>Koreksi & CRUD Absen</span>
+              </button>
+            )}
+
             <button
               id="btn-open-camera-scanner"
               onClick={onOpenScanner}
@@ -612,12 +719,28 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-600">
                         {waktu !== '-' ? (
-                          <span className="inline-flex items-center gap-1 font-semibold text-slate-800">
+                          <button
+                            type="button"
+                            disabled={!isRowEditable}
+                            onClick={() => handleOpenDateTimeEdit(std, record)}
+                            className="inline-flex items-center gap-1 font-semibold text-slate-800 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-lg transition border border-transparent hover:border-indigo-200 cursor-pointer"
+                            title="Klik untuk koreksi tanggal & jam masuk presensi"
+                          >
                             <Clock className="w-3 h-3 text-slate-400" />
                             {waktu}
-                          </span>
+                            <Edit className="w-2.5 h-2.5 opacity-40 hover:opacity-100 ml-0.5" />
+                          </button>
                         ) : (
-                          <span className="text-slate-400">-</span>
+                          <button
+                            type="button"
+                            disabled={!isRowEditable}
+                            onClick={() => handleOpenDateTimeEdit(std, record)}
+                            className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-lg text-xs transition inline-flex items-center gap-1 cursor-pointer"
+                            title="Klik untuk input presensi dengan tanggal/jam kustom"
+                          >
+                            <span>-</span>
+                            <Edit className="w-2.5 h-2.5 opacity-40" />
+                          </button>
                         )}
                       </td>
                       <td className="py-3 px-4">
@@ -649,61 +772,99 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
                         {!metode && <span className="text-[10px] text-slate-400 italic">Belum absen</span>}
                       </td>
 
-                      {/* Tombol Aksi Absensi Manual Interaktif (H, S, I, A) */}
+                      {/* Tombol Aksi Absensi Manual Interaktif (H, S, I, A) & Reset Koreksi */}
                       <td className="py-3 px-4 text-center">
-                        <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200">
-                          <button
-                            id={`btn-status-hadir-${std.nipd}`}
-                            title="Tandai Hadir"
-                            disabled={!isRowEditable}
-                            onClick={() => handleStatusChange(std, 'hadir')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                              status === 'hadir'
-                                ? 'bg-emerald-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
-                            }`}
-                          >
-                            H
-                          </button>
-                          <button
-                            id={`btn-status-sakit-${std.nipd}`}
-                            title="Tandai Sakit"
-                            disabled={!isRowEditable}
-                            onClick={() => handleStatusChange(std, 'sakit')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                              status === 'sakit'
-                                ? 'bg-amber-500 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-amber-700 hover:bg-amber-50'
-                            }`}
-                          >
-                            S
-                          </button>
-                          <button
-                            id={`btn-status-izin-${std.nipd}`}
-                            title="Tandai Izin"
-                            disabled={!isRowEditable}
-                            onClick={() => handleStatusChange(std, 'izin')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                              status === 'izin'
-                                ? 'bg-sky-500 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-sky-700 hover:bg-sky-50'
-                            }`}
-                          >
-                            I
-                          </button>
-                          <button
-                            id={`btn-status-alfa-${std.nipd}`}
-                            title="Tandai Alfa"
-                            disabled={!isRowEditable}
-                            onClick={() => handleStatusChange(std, 'alfa')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                              status === 'alfa'
-                                ? 'bg-rose-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-rose-700 hover:bg-rose-50'
-                            }`}
-                          >
-                            A
-                          </button>
+                        <div className="inline-flex items-center gap-1">
+                          <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200">
+                            <button
+                              id={`btn-status-hadir-${std.nipd}`}
+                              title="Tandai Hadir"
+                              disabled={!isRowEditable}
+                              onClick={() => handleStatusChange(std, 'hadir')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                status === 'hadir'
+                                  ? 'bg-emerald-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
+                              }`}
+                            >
+                              H
+                            </button>
+                            <button
+                              id={`btn-status-sakit-${std.nipd}`}
+                              title="Tandai Sakit"
+                              disabled={!isRowEditable}
+                              onClick={() => handleStatusChange(std, 'sakit')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                status === 'sakit'
+                                  ? 'bg-amber-500 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-amber-700 hover:bg-amber-50'
+                              }`}
+                            >
+                              S
+                            </button>
+                            <button
+                              id={`btn-status-izin-${std.nipd}`}
+                              title="Tandai Izin"
+                              disabled={!isRowEditable}
+                              onClick={() => handleStatusChange(std, 'izin')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                status === 'izin'
+                                  ? 'bg-sky-500 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-sky-700 hover:bg-sky-50'
+                              }`}
+                            >
+                              I
+                            </button>
+                            <button
+                              id={`btn-status-alfa-${std.nipd}`}
+                              title="Tandai Alfa"
+                              disabled={!isRowEditable}
+                              onClick={() => handleStatusChange(std, 'alfa')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                status === 'alfa'
+                                  ? 'bg-rose-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-rose-700 hover:bg-rose-50'
+                              }`}
+                            >
+                              A
+                            </button>
+                          </div>
+
+                          {/* Tombol Edit Tanggal & Jam */}
+                          {isRowEditable && (
+                            <button
+                              id={`btn-edit-time-${std.nipd}`}
+                              onClick={() => handleOpenDateTimeEdit(std, record)}
+                              title="Koreksi Tanggal & Jam Absensi Siswa"
+                              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Tombol Reset / Hapus Rekaman Presensi yang Salah */}
+                          {record && isRowEditable && (
+                            <button
+                              id={`btn-reset-attendance-${std.nipd}`}
+                              onClick={() => handleResetStatus(std)}
+                              title="Reset / Hapus Absensi: Kembalikan status siswa menjadi Belum Absen (meminimalisir salah catat)"
+                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Tombol Koreksi Detail Modal untuk Admin */}
+                          {record && onEditAttendanceRecord && currentUser.role === 'admin' && (
+                            <button
+                              id={`btn-edit-detail-${std.nipd}`}
+                              onClick={() => onEditAttendanceRecord(record)}
+                              title="Koreksi detail jam/tanggal/alasan absensi"
+                              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 transition"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -738,6 +899,223 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Modal Edit Tanggal & Jam Presensi Siswa */}
+      {editingDateTimeStudent && (
+        <div
+          id="modal-edit-datetime-student"
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+        >
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base">Koreksi Tanggal & Jam Presensi</h3>
+                  <p className="text-[11px] text-slate-400">Atur tanggal absensi dan jam masuk siswa</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDateTimeStudent(null)}
+                className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Student Info Card */}
+            <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-slate-900 text-sm">{editingDateTimeStudent.student.nama}</div>
+                <div className="text-[11px] font-mono text-emerald-700 font-bold">
+                  NIPD: {editingDateTimeStudent.student.nipd}
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700">
+                {getRombelName(editingDateTimeStudent.student.rombelId)}
+              </span>
+            </div>
+
+            {/* Form Content */}
+            <form onSubmit={handleSaveDateTimeEdit} className="p-5 space-y-4 text-xs">
+              {/* Tanggal & Jam Box */}
+              <div className="bg-indigo-50/60 p-3.5 rounded-2xl border border-indigo-100 space-y-3">
+                {/* Tanggal */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-700 block">Tanggal Presensi:</label>
+                  <input
+                    type="date"
+                    value={modalDate}
+                    onChange={(e) => setModalDate(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                  />
+                  <div className="flex items-center gap-1 pt-0.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setModalDate(todayStr)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                        modalDate === todayStr
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Hari Ini
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalDate(getYesterdayDateStr())}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                        modalDate === getYesterdayDateStr()
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Kemarin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalDate(getTwoDaysAgoDateStr())}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                        modalDate === getTwoDaysAgoDateStr()
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      2 Hari Lalu
+                    </button>
+                  </div>
+                </div>
+
+                {/* Jam Masuk */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-700 block">Jam Masuk (Waktu Presensi):</label>
+                    <button
+                      type="button"
+                      onClick={() => setModalTime(getCurrentTimeStr())}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 hover:underline"
+                    >
+                      <Clock className="w-3 h-3" />
+                      Jam Sekarang
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={modalTime}
+                    onChange={(e) => setModalTime(e.target.value)}
+                    required
+                    placeholder="HH:mm:ss (contoh: 07:15:00)"
+                    className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono shadow-xs"
+                  />
+                  <div className="flex items-center gap-1 pt-0.5 flex-wrap">
+                    {timePresets.map((t) => (
+                      <button
+                        key={t.label}
+                        type="button"
+                        onClick={() => setModalTime(`${t.label}:00`)}
+                        className={`px-1.5 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition ${
+                          modalTime.startsWith(t.label)
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                        title={`${t.label} (${t.desc})`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Kehadiran */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 block">Status Kehadiran:</label>
+                <div className="grid grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalStatus('hadir')}
+                    className={`p-2.5 rounded-xl font-bold border transition text-center ${
+                      modalStatus === 'hadir'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    Hadir (H)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalStatus('sakit')}
+                    className={`p-2.5 rounded-xl font-bold border transition text-center ${
+                      modalStatus === 'sakit'
+                        ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    Sakit (S)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalStatus('izin')}
+                    className={`p-2.5 rounded-xl font-bold border transition text-center ${
+                      modalStatus === 'izin'
+                        ? 'bg-sky-500 text-white border-sky-500 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-sky-50'
+                    }`}
+                  >
+                    Izin (I)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalStatus('alfa')}
+                    className={`p-2.5 rounded-xl font-bold border transition text-center ${
+                      modalStatus === 'alfa'
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-rose-50'
+                    }`}
+                  >
+                    Alfa (A)
+                  </button>
+                </div>
+              </div>
+
+              {/* Catatan / Keterangan */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 block">Keterangan / Alasan (Opsional):</label>
+                <input
+                  type="text"
+                  value={modalNote}
+                  onChange={(e) => setModalNote(e.target.value)}
+                  placeholder="Contoh: Datang terlambat 15 menit, izin ke dokter, dll."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingDateTimeStudent(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold transition cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  Simpan Perubahan Presensi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

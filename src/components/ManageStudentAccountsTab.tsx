@@ -29,6 +29,7 @@ interface ManageStudentAccountsTabProps {
   onAddUser: (user: UserAccount) => void;
   onUpdateUser: (user: UserAccount) => void;
   onDeleteUser: (id: string) => void;
+  onUpdateStudent?: (student: Student) => void;
   onSyncMassStudentAccounts: (updatedUsers: UserAccount[]) => void;
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -41,6 +42,7 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
   onAddUser,
   onUpdateUser,
   onDeleteUser,
+  onUpdateStudent,
   onSyncMassStudentAccounts,
   onShowToast,
 }) => {
@@ -67,6 +69,7 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
   const [formPassword, setFormPassword] = useState('123');
   const [formRombelId, setFormRombelId] = useState('');
   const [formStatusAktif, setFormStatusAktif] = useState(true);
+  const [formSyncStudentMaster, setFormSyncStudentMaster] = useState(true);
 
   // Student accounts list from users with role === 'siswa'
   const studentAccounts = users.filter((u) => u.role === 'siswa');
@@ -139,6 +142,7 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
     setFormPassword(user.password || '123');
     setFormRombelId(user.rombelId || '');
     setFormStatusAktif(user.statusAktif);
+    setFormSyncStudentMaster(true);
   };
 
   // Save Edit Submit
@@ -146,9 +150,10 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
     e.preventDefault();
     if (!editingAccount) return;
 
+    const trimmedNama = formNama.trim();
     const updated: UserAccount = {
       ...editingAccount,
-      nama: formNama.trim(),
+      nama: trimmedNama,
       username: formUsername.trim(),
       email: formEmail.trim(),
       password: formPassword.trim(),
@@ -158,8 +163,24 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
     };
 
     onUpdateUser(updated);
+
+    // Sync Student Master Record if option checked
+    let syncNote = '';
+    if (formSyncStudentMaster && onUpdateStudent) {
+      const targetNipd = updated.nipd || editingAccount.nipd || updated.username;
+      const matched = students.find((s) => s.nipd === targetNipd);
+      if (matched && matched.nama !== trimmedNama) {
+        onUpdateStudent({
+          ...matched,
+          nama: trimmedNama,
+          rombelId: updated.rombelId || matched.rombelId,
+        });
+        syncNote = ' (Nama di Master Data Siswa juga ikut disinkronkan)';
+      }
+    }
+
     setEditingAccount(null);
-    onShowToast(`Data akun siswa "${updated.nama}" berhasil diperbarui`, 'success');
+    onShowToast(`Data akun siswa "${updated.nama}" berhasil diperbarui!${syncNote}`, 'success');
   };
 
   // Open Add Modal
@@ -716,8 +737,12 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
                   required
                   value={formNama}
                   onChange={(e) => setFormNama(e.target.value)}
+                  placeholder="Nama Lengkap Siswa"
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Koreksi di sini jika terdapat kesalahan ejaan atau pengetikan nama siswa.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -783,6 +808,25 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
+
+              {onUpdateStudent && (
+                <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl">
+                  <label className="flex items-start gap-2 cursor-pointer text-xs text-teal-900">
+                    <input
+                      type="checkbox"
+                      checked={formSyncStudentMaster}
+                      onChange={(e) => setFormSyncStudentMaster(e.target.checked)}
+                      className="mt-0.5 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                    />
+                    <div>
+                      <span className="font-bold">Perbarui juga nama pada Master Data Siswa</span>
+                      <p className="text-[10px] text-teal-700 mt-0.5">
+                        Koreksi ejaan nama ini akan otomatis disinkronkan ke daftar induk siswa dan riwayat presensi.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
                 <button

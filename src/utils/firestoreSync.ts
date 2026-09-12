@@ -29,6 +29,7 @@ import {
   saveAttendanceRecords,
   saveTokens,
   saveSchoolConfig,
+  FullBackupPayload,
 } from './storage';
 
 // Safe doc id helper (escapes slashes and special characters if any)
@@ -46,7 +47,32 @@ export interface FirestoreDataCallbacks {
   onAttendanceLoaded?: (data: AttendanceRecord[]) => void;
   onTokensLoaded?: (data: AttendanceToken[]) => void;
   onSchoolConfigLoaded?: (data: SchoolConfig) => void;
+  onInitialSyncComplete?: () => void;
 }
+
+// Reusable batch chunking helper to write up to 400 docs per transaction safely
+export async function firestoreSaveBatchChunked<T>(
+  collectionName: string,
+  items: T[],
+  getId: (item: T) => string
+): Promise<void> {
+  if (!items || items.length === 0) return;
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+    const chunk = items.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((item) => {
+      const docId = sanitizeDocId(getId(item));
+      batch.set(doc(db, collectionName, docId), item, { merge: true });
+    });
+    try {
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, collectionName);
+    }
+  }
+}
+
 
 // Subscribe to all collections for real-time multi-device synchronization
 export function subscribeToFirestore(
@@ -64,6 +90,14 @@ export function subscribeToFirestore(
   }
 ) {
   const unsubscribers: (() => void)[] = [];
+  let pendingInitialListeners = 9;
+
+  const notifyInitialLoaded = () => {
+    pendingInitialListeners--;
+    if (pendingInitialListeners <= 0) {
+      callbacks.onInitialSyncComplete?.();
+    }
+  };
 
   // 1. School Config
   try {
@@ -72,20 +106,38 @@ export function subscribeToFirestore(
       (docSnap) => {
         if (docSnap.exists()) {
           const cfg = docSnap.data() as SchoolConfig;
+          if (
+            cfg.namaSekolah === 'SMK KESEHATAN BHAKTI HUSADA' ||
+            cfg.namaSekolah?.toLowerCase().includes('bhakti husada')
+          ) {
+            cfg.namaSekolah = 'SMK Bakti Putra Mandiri';
+            if (cfg.email && cfg.email.includes('husada')) {
+              cfg.email = 'info@smkbaktiputramandiri.sch.id';
+            }
+            if (cfg.website && cfg.website.includes('husada')) {
+              cfg.website = 'www.smkbaktiputramandiri.sch.id';
+            }
+            setDoc(doc(db, 'school_config', 'main'), cfg, { merge: true }).catch(() => {});
+          }
           callbacks.onSchoolConfigLoaded?.(cfg);
           saveSchoolConfig(cfg);
         } else {
-          // Seed if missing
+          // Only seed if missing completely in Firestore
           setDoc(doc(db, 'school_config', 'main'), initialFallbacks.schoolConfig, { merge: true }).catch(
             (e) => handleFirestoreError(e, OperationType.WRITE, 'school_config/main')
           );
         }
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'school_config/main')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'school_config/main');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'school_config/main');
+    notifyInitialLoaded();
   }
 
   // 2. Rombels
@@ -93,24 +145,20 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'rombels'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as Rombel);
-          callbacks.onRombelsLoaded?.(items);
-          saveRombelList(items);
-        } else if (initialFallbacks.rombels.length > 0) {
-          // Seed initial rombels
-          initialFallbacks.rombels.forEach((r) => {
-            setDoc(doc(db, 'rombels', sanitizeDocId(r.id)), r, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `rombels/${r.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as Rombel);
+        callbacks.onRombelsLoaded?.(items);
+        saveRombelList(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'rombels')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'rombels');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'rombels');
+    notifyInitialLoaded();
   }
 
   // 3. Students
@@ -118,23 +166,20 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'students'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as Student);
-          callbacks.onStudentsLoaded?.(items);
-          saveStudentList(items);
-        } else if (initialFallbacks.students.length > 0) {
-          initialFallbacks.students.forEach((s) => {
-            setDoc(doc(db, 'students', sanitizeDocId(s.nipd)), s, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `students/${s.nipd}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as Student);
+        callbacks.onStudentsLoaded?.(items);
+        saveStudentList(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'students')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'students');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'students');
+    notifyInitialLoaded();
   }
 
   // 4. Users
@@ -142,47 +187,41 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'users'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as UserAccount);
-          callbacks.onUsersLoaded?.(items);
-          saveUserList(items);
-        } else if (initialFallbacks.users.length > 0) {
-          initialFallbacks.users.forEach((u) => {
-            setDoc(doc(db, 'users', sanitizeDocId(u.id)), u, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `users/${u.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as UserAccount);
+        callbacks.onUsersLoaded?.(items);
+        saveUserList(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'users')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'users');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'users');
+    notifyInitialLoaded();
   }
 
-  // 5. Teachers
+  // 5. Teachers (Preserves deletions across all devices)
   try {
     const unsub = onSnapshot(
       collection(db, 'teachers'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as Teacher);
-          callbacks.onTeachersLoaded?.(items);
-          saveTeacherList(items);
-        } else if (initialFallbacks.teachers.length > 0) {
-          initialFallbacks.teachers.forEach((t) => {
-            setDoc(doc(db, 'teachers', sanitizeDocId(t.id)), t, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `teachers/${t.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as Teacher);
+        callbacks.onTeachersLoaded?.(items);
+        saveTeacherList(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'teachers')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'teachers');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'teachers');
+    notifyInitialLoaded();
   }
 
   // 6. Subjects
@@ -190,23 +229,20 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'subjects'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as Subject);
-          callbacks.onSubjectsLoaded?.(items);
-          saveSubjectList(items);
-        } else if (initialFallbacks.subjects.length > 0) {
-          initialFallbacks.subjects.forEach((s) => {
-            setDoc(doc(db, 'subjects', sanitizeDocId(s.id)), s, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `subjects/${s.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as Subject);
+        callbacks.onSubjectsLoaded?.(items);
+        saveSubjectList(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'subjects')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'subjects');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'subjects');
+    notifyInitialLoaded();
   }
 
   // 7. Schedules
@@ -214,23 +250,20 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'schedules'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as ScheduleItem);
-          callbacks.onSchedulesLoaded?.(items);
-          saveScheduleList(items);
-        } else if (initialFallbacks.schedules.length > 0) {
-          initialFallbacks.schedules.forEach((sc) => {
-            setDoc(doc(db, 'schedules', sanitizeDocId(sc.id)), sc, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `schedules/${sc.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as ScheduleItem);
+        callbacks.onSchedulesLoaded?.(items);
+        saveScheduleList(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'schedules')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'schedules');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'schedules');
+    notifyInitialLoaded();
   }
 
   // 8. Attendance Records
@@ -238,23 +271,20 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'attendance_records'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as AttendanceRecord);
-          callbacks.onAttendanceLoaded?.(items);
-          saveAttendanceRecords(items);
-        } else if (initialFallbacks.attendance.length > 0) {
-          initialFallbacks.attendance.forEach((ar) => {
-            setDoc(doc(db, 'attendance_records', sanitizeDocId(ar.id)), ar, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `attendance_records/${ar.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as AttendanceRecord);
+        callbacks.onAttendanceLoaded?.(items);
+        saveAttendanceRecords(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'attendance_records')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'attendance_records');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'attendance_records');
+    notifyInitialLoaded();
   }
 
   // 9. Tokens
@@ -262,26 +292,29 @@ export function subscribeToFirestore(
     const unsub = onSnapshot(
       collection(db, 'tokens'),
       (snap) => {
-        if (!snap.empty) {
-          const items = snap.docs.map((d) => d.data() as AttendanceToken);
-          callbacks.onTokensLoaded?.(items);
-          saveTokens(items);
-        } else if (initialFallbacks.tokens.length > 0) {
-          initialFallbacks.tokens.forEach((tk) => {
-            setDoc(doc(db, 'tokens', sanitizeDocId(tk.id)), tk, { merge: true }).catch((e) =>
-              handleFirestoreError(e, OperationType.WRITE, `tokens/${tk.id}`)
-            );
-          });
-        }
+        const items = snap.docs.map((d) => d.data() as AttendanceToken);
+        callbacks.onTokensLoaded?.(items);
+        saveTokens(items);
+        notifyInitialLoaded();
       },
-      (err) => handleFirestoreError(err, OperationType.GET, 'tokens')
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'tokens');
+        notifyInitialLoaded();
+      }
     );
     unsubscribers.push(unsub);
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, 'tokens');
+    notifyInitialLoaded();
   }
 
+  // Safety fallback: unblock UI within 1.5 seconds if network latency occurs
+  const fallbackTimer = setTimeout(() => {
+    callbacks.onInitialSyncComplete?.();
+  }, 1500);
+
   return () => {
+    clearTimeout(fallbackTimer);
     unsubscribers.forEach((fn) => fn());
   };
 }
@@ -406,6 +439,26 @@ export async function firestoreSaveAttendanceRecordsBatch(records: AttendanceRec
   }
 }
 
+export async function firestoreDeleteAttendanceRecord(recordId: string) {
+  try {
+    await deleteDoc(doc(db, 'attendance_records', sanitizeDocId(recordId)));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `attendance_records/${recordId}`);
+  }
+}
+
+export async function firestoreDeleteAttendanceRecordsBatch(recordIds: string[]) {
+  try {
+    const batch = writeBatch(db);
+    recordIds.forEach((id) => {
+      batch.delete(doc(db, 'attendance_records', sanitizeDocId(id)));
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, 'attendance_records_batch');
+  }
+}
+
 export async function firestoreSaveToken(token: AttendanceToken) {
   try {
     await setDoc(doc(db, 'tokens', sanitizeDocId(token.id)), token, { merge: true });
@@ -429,3 +482,94 @@ export async function firestoreSaveSchoolConfig(config: SchoolConfig) {
     handleFirestoreError(err, OperationType.WRITE, 'school_config/main');
   }
 }
+
+export async function firestoreSaveUsersBatch(users: UserAccount[]): Promise<void> {
+  return firestoreSaveBatchChunked('users', users, (u) => u.id);
+}
+
+export async function firestoreSaveStudentsBatch(students: Student[]): Promise<void> {
+  return firestoreSaveBatchChunked('students', students, (s) => s.nipd);
+}
+
+export async function firestoreSaveTeachersBatch(teachers: Teacher[]): Promise<void> {
+  return firestoreSaveBatchChunked('teachers', teachers, (t) => t.id);
+}
+
+export async function firestoreSaveSubjectsBatch(subjects: Subject[]): Promise<void> {
+  return firestoreSaveBatchChunked('subjects', subjects, (s) => s.id);
+}
+
+export async function firestoreSaveSchedulesBatch(schedules: ScheduleItem[]): Promise<void> {
+  return firestoreSaveBatchChunked('schedules', schedules, (sc) => sc.id);
+}
+
+// Reconciles Firestore collection with new list: removes obsolete docs and writes updated items
+async function reconcileCollection<T>(
+  collectionName: string,
+  newItems: T[],
+  getId: (item: T) => string
+): Promise<void> {
+  try {
+    const newIds = new Set(newItems.map((item) => sanitizeDocId(getId(item))));
+    const snap = await getDocs(collection(db, collectionName));
+    const toDelete: string[] = [];
+    snap.docs.forEach((d) => {
+      if (!newIds.has(d.id)) {
+        toDelete.push(d.id);
+      }
+    });
+    for (const docId of toDelete) {
+      await deleteDoc(doc(db, collectionName, docId)).catch(() => {});
+    }
+  } catch (err) {
+    console.warn(`[Reconcile ${collectionName}] Warning:`, err);
+  }
+  await firestoreSaveBatchChunked(collectionName, newItems, getId);
+}
+
+// Restore entire system backup data directly to Firebase Firestore
+export async function firestoreRestoreFullBackup(payload: FullBackupPayload): Promise<boolean> {
+  try {
+    // 1. School config
+    if (payload.schoolConfig) {
+      await firestoreSaveSchoolConfig(payload.schoolConfig);
+    }
+    // 2. Rombels
+    if (payload.rombels && payload.rombels.length > 0) {
+      await reconcileCollection('rombels', payload.rombels, (r) => r.id);
+    }
+    // 3. Students
+    if (payload.students && payload.students.length > 0) {
+      await reconcileCollection('students', payload.students, (s) => s.nipd);
+    }
+    // 4. Users
+    if (payload.users && payload.users.length > 0) {
+      await reconcileCollection('users', payload.users, (u) => u.id);
+    }
+    // 5. Teachers
+    if (payload.teachers && payload.teachers.length > 0) {
+      await reconcileCollection('teachers', payload.teachers, (t) => t.id);
+    }
+    // 6. Subjects
+    if (payload.subjects && payload.subjects.length > 0) {
+      await reconcileCollection('subjects', payload.subjects, (s) => s.id);
+    }
+    // 7. Schedules
+    if (payload.schedules && payload.schedules.length > 0) {
+      await reconcileCollection('schedules', payload.schedules, (sc) => sc.id);
+    }
+    // 8. Attendance Records
+    if (payload.attendanceRecords && payload.attendanceRecords.length > 0) {
+      await reconcileCollection('attendance_records', payload.attendanceRecords, (ar) => ar.id);
+    }
+    // 9. Tokens
+    if (payload.tokens && payload.tokens.length > 0) {
+      await reconcileCollection('tokens', payload.tokens, (tk) => tk.id);
+    }
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'restore_full_backup');
+    return false;
+  }
+}
+

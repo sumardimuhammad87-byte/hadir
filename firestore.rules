@@ -6,39 +6,48 @@ service cloud.firestore {
     }
 
     match /school_config/{configId} {
-      allow read, write: if isValidId(configId);
+      allow read: if true;
+      allow write: if isValidId(configId);
     }
 
     match /rombels/{rombelId} {
-      allow read, write: if isValidId(rombelId);
+      allow read: if true;
+      allow write: if isValidId(rombelId);
     }
 
     match /students/{studentId} {
-      allow read, write: if isValidId(studentId);
+      allow read: if true;
+      allow write: if isValidId(studentId);
     }
 
     match /users/{userId} {
-      allow read, write: if isValidId(userId);
+      allow read: if true;
+      allow write: if isValidId(userId);
     }
 
     match /teachers/{teacherId} {
-      allow read, write: if isValidId(teacherId);
+      allow read: if true;
+      allow write: if isValidId(teacherId);
     }
 
     match /subjects/{subjectId} {
-      allow read, write: if isValidId(subjectId);
+      allow read: if true;
+      allow write: if isValidId(subjectId);
     }
 
     match /schedules/{scheduleId} {
-      allow read, write: if isValidId(scheduleId);
+      allow read: if true;
+      allow write: if isValidId(scheduleId);
     }
 
     match /attendance_records/{recordId} {
-      allow read, write: if isValidId(recordId);
+      allow read: if true;
+      allow write: if isValidId(recordId);
     }
 
     match /tokens/{tokenId} {
-      allow read, write: if isValidId(tokenId);
+      allow read: if true;
+      allow write: if isValidId(tokenId);
     }
 
     match /{document=**} {
@@ -46,3 +55,4 @@ service cloud.firestore {
     }
   }
 }
+

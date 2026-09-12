@@ -46,10 +46,10 @@ export const SchoolSettingsModal: React.FC<SchoolSettingsModalProps> = ({
         return;
       }
 
-      // Optimize image dimensions to max 160x160 for optimal sharpness without filling storage quota
+      // Optimize image dimensions to max 200x200 for optimal sharpness and transparency preservation
       const img = new Image();
       img.onload = () => {
-        const maxDim = 160;
+        const maxDim = 200;
         let width = img.width;
         let height = img.height;
 
@@ -68,16 +68,18 @@ export const SchoolSettingsModal: React.FC<SchoolSettingsModalProps> = ({
         canvas.height = Math.max(1, height);
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          // Fill white background for transparent images to allow optimal JPEG/WebP compression
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          // Clear canvas to preserve transparency for PNG/WebP school badges
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Use compressed JPEG at 0.8 quality (typically 6KB - 18KB)
-          let compressed = canvas.toDataURL('image/jpeg', 0.8);
-          // If still over 40KB, compress further to prevent QuotaExceededError
-          if (compressed.length > 40000) {
-            compressed = canvas.toDataURL('image/jpeg', 0.6);
+          let compressed = '';
+          try {
+            compressed = canvas.toDataURL('image/webp', 0.88);
+            if (!compressed.startsWith('data:image/webp')) {
+              compressed = canvas.toDataURL('image/png');
+            }
+          } catch {
+            compressed = canvas.toDataURL('image/png');
           }
           handleChange('logoUrl', compressed);
         } else {
@@ -86,12 +88,8 @@ export const SchoolSettingsModal: React.FC<SchoolSettingsModalProps> = ({
         setIsProcessing(false);
       };
       img.onerror = () => {
-        // Fallback: If image fails to render on canvas, do not load huge strings
-        if (result.length < 50000) {
-          handleChange('logoUrl', result);
-        } else {
-          setUploadError('Format gambar tidak dapat diproses.');
-        }
+        // Fallback: If image fails to render on canvas, use direct result
+        handleChange('logoUrl', result);
         setIsProcessing(false);
       };
       img.src = result;
@@ -190,7 +188,7 @@ export const SchoolSettingsModal: React.FC<SchoolSettingsModalProps> = ({
               required
               value={formData.namaSekolah}
               onChange={(e) => handleChange('namaSekolah', e.target.value)}
-              placeholder="Contoh: SMK KESEHATAN BHAKTI HUSADA"
+              placeholder="Contoh: SMK Bakti Putra Mandiri"
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500"
             />
           </div>

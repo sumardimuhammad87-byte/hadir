@@ -1,15 +1,15 @@
 import { Student, Rombel, UserAccount, SchoolConfig, AttendanceRecord, Teacher, Subject, ScheduleItem } from '../types';
 
 export const INITIAL_SCHOOL_CONFIG: SchoolConfig = {
-  namaSekolah: 'SMK KESEHATAN BHAKTI HUSADA',
+  namaSekolah: 'SMK Bakti Putra Mandiri',
   alamatSekolah: 'Jl. Pemuda Raya No. 45, Komplek Pendidikan Citra',
   kelurahan: 'Tanah Sareal',
   kecamatan: 'Tanah Sareal',
   kotaKab: 'Kota Bogor',
   provinsi: 'Jawa Barat',
   telepon: '(0251) 8345678',
-  email: 'info@smkkesehatanhusada.sch.id',
-  website: 'www.smkkesehatanhusada.sch.id',
+  email: 'info@smkbaktiputramandiri.sch.id',
+  website: 'www.smkbaktiputramandiri.sch.id',
   namaKepalaSekolah: 'Dra. Hj. Nurhayati, M.Pd.',
   nipKepalaSekolah: '19740512 199803 2 004',
   logoUrl: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=160&auto=format&fit=crop&q=80',

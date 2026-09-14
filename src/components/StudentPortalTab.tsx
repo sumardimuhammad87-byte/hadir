@@ -1,9 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserAccount, Student, Rombel, AttendanceRecord, AttendanceToken, SchoolConfig } from '../types';
 import { generateQrDataUrl } from '../utils/qrcode';
 import { getCurrentTimeStr, getTodayDateStr, calculateAttendanceRate } from '../utils/storage';
 import { getHolidayInfo, formatIndonesianDateWithDay } from '../utils/holidays';
-import { QrCode, Key, CheckCircle2, AlertCircle, Clock, Shield, Lock, User, Download, Save, Calendar, Sparkles } from 'lucide-react';
+import { getUserGreetingDetails } from '../utils/greetings';
+import { BirthdayCelebrationModal } from './BirthdayCelebrationModal';
+import { compressImageFile } from '../utils/imageCompressor';
+import {
+  QrCode,
+  Key,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Shield,
+  Lock,
+  User,
+  Download,
+  Save,
+  Calendar,
+  Sparkles,
+  Upload,
+  Image as ImageIcon,
+  Trash2,
+  Camera,
+  PartyPopper,
+  Cake,
+} from 'lucide-react';
 
 interface StudentPortalTabProps {
   currentUser: UserAccount;
@@ -35,11 +57,25 @@ export const StudentPortalTab: React.FC<StudentPortalTabProps> = ({
   // Account Settings Form
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
-  const [photoUrl, setPhotoUrl] = useState<string>(currentUser.foto || '');
+  const [photoUrl, setPhotoUrl] = useState<string>(currentUser.foto || student?.foto || '');
   const [phone, setPhone] = useState<string>(currentUser.telepon || '');
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState<boolean>(false);
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState<boolean>(false);
+  const [showBirthdayCard, setShowBirthdayCard] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const studentNipd = currentUser.nipd || student?.nipd || '';
+  const currentPhoto = photoUrl || currentUser.foto || student?.foto || '';
+
+  // Get personalized greeting and birthday status
+  const greetingDetails = getUserGreetingDetails(currentUser, student);
+
+  useEffect(() => {
+    if (currentUser.foto || student?.foto) {
+      setPhotoUrl(currentUser.foto || student?.foto || '');
+    }
+  }, [currentUser.foto, student?.foto]);
 
   useEffect(() => {
     if (studentNipd) {
@@ -99,10 +135,22 @@ export const StudentPortalTab: React.FC<StudentPortalTabProps> = ({
     }
 
     onUpdateCurrentUser(updatedUser);
-    setSettingsNotice('Profil dan kata sandi berhasil diperbarui!');
+    setSettingsNotice('Profil dan foto berhasil diperbarui!');
     setNewPassword('');
     setConfirmPassword('');
     setTimeout(() => setSettingsNotice(null), 4000);
+  };
+
+  const handlePhotoFileUpload = async (file: File) => {
+    try {
+      setIsProcessingPhoto(true);
+      const compressed = await compressImageFile(file, 320, 420, 0.85);
+      setPhotoUrl(compressed);
+      setIsProcessingPhoto(false);
+    } catch (err: any) {
+      alert(err?.message || 'Gagal memproses gambar');
+      setIsProcessingPhoto(false);
+    }
   };
 
   const handleDownloadQr = () => {
@@ -115,30 +163,97 @@ export const StudentPortalTab: React.FC<StudentPortalTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Special Birthday Celebration Ribbon (if today is their birthday) */}
+      {greetingDetails.isBirthday && (
+        <div className="bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 border-2 border-amber-300 animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
+          <div className="absolute -top-10 -right-10 w-36 h-36 bg-white/10 rounded-full blur-sm pointer-events-none" />
+          <div className="relative z-10 flex items-center gap-4 text-left">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-3xl sm:text-4xl shadow-inner shrink-0 border border-white/30">
+              🎂
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/25 border border-white/40">
+                  <Sparkles className="w-3 h-3 text-yellow-300" />
+                  Hari Istimewa Siswa!
+                </span>
+                {greetingDetails.age && (
+                  <span className="text-xs font-bold text-yellow-200">
+                    Genap {greetingDetails.age} Tahun
+                  </span>
+                )}
+              </div>
+              <h3 className="text-lg sm:text-xl font-black mt-1 tracking-tight">
+                Selamat Ulang Tahun, {currentUser.nama}! 🎉
+              </h3>
+              <p className="text-xs text-amber-100 max-w-2xl mt-1 leading-relaxed">
+                {greetingDetails.birthdayWish}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowBirthdayCard(true)}
+            className="relative z-10 px-4 py-2.5 rounded-xl bg-white text-slate-900 hover:bg-amber-100 font-bold text-xs shadow-md hover:shadow-lg transition shrink-0 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <PartyPopper className="w-4 h-4 text-rose-600" />
+            <span>Buka Kartu Ucapan Ulang Tahun 🥳</span>
+          </button>
+        </div>
+      )}
+
       {/* Student Welcome Banner */}
       <div className="bg-gradient-to-r from-teal-700 via-emerald-700 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            {currentUser.foto ? (
-              <img
-                src={currentUser.foto}
-                alt={currentUser.nama}
-                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-emerald-300 shadow-md bg-white"
-              />
-            ) : (
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/30 border-2 border-emerald-300/60 flex items-center justify-center font-bold text-2xl text-emerald-200">
-                {currentUser.nama.slice(0, 2).toUpperCase()}
-              </div>
-            )}
+          <div className="flex items-center gap-4 sm:gap-5">
+            <div className="relative shrink-0">
+              {currentPhoto ? (
+                <img
+                  src={currentPhoto}
+                  alt={currentUser.nama}
+                  className="w-16 h-20 sm:w-20 sm:h-26 rounded-2xl object-cover border-2 border-emerald-300 shadow-md bg-white"
+                />
+              ) : (
+                <div className="w-16 h-20 sm:w-20 sm:h-26 rounded-2xl bg-emerald-500/30 border-2 border-emerald-300/60 flex flex-col items-center justify-center font-bold text-2xl text-emerald-200">
+                  <User className="w-7 h-7 mb-1 opacity-70" />
+                  <span className="text-sm font-bold">{currentUser.nama.slice(0, 2).toUpperCase()}</span>
+                </div>
+              )}
+              {greetingDetails.isBirthday && (
+                <span
+                  title="Ulang Tahun Hari Ini! 🎂"
+                  onClick={() => setShowBirthdayCard(true)}
+                  className="absolute -top-2 -right-2 p-1.5 bg-amber-400 text-slate-900 rounded-full shadow-md border-2 border-white cursor-pointer hover:scale-110 transition animate-bounce"
+                >
+                  <Cake className="w-3.5 h-3.5 text-rose-600" />
+                </span>
+              )}
+            </div>
+
             <div>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-400/20 text-emerald-200 border border-emerald-400/30">
-                PORTAL SISWA
-              </span>
-              <h2 className="text-xl sm:text-2xl font-black mt-1">{currentUser.nama}</h2>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-100 mt-1 font-mono">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-400/20 text-emerald-200 border border-emerald-400/30 flex items-center gap-1">
+                  <span>{greetingDetails.icon}</span>
+                  <span>{greetingDetails.timeGreeting}</span>
+                </span>
+                {greetingDetails.isBirthday && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/30 text-amber-200 border border-amber-400/40">
+                    🎂 Milad Hari Ini!
+                  </span>
+                )}
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black mt-1 text-white">{currentUser.nama}</h2>
+              <p className="text-xs text-emerald-100/90 mt-0.5">{greetingDetails.subtext}</p>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-200 mt-2 font-mono">
                 <span>NIPD: <strong className="text-white">{studentNipd}</strong></span>
                 <span>•</span>
                 <span>Kelas: <strong className="text-white">{rombel?.nama || currentUser.rombelId || 'Siswa'}</strong></span>
+                {student?.tanggalLahir && (
+                  <>
+                    <span>•</span>
+                    <span>Tgl Lahir: <strong className="text-white">{greetingDetails.birthDateFormatted || student.tanggalLahir}</strong></span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -429,49 +544,152 @@ export const StudentPortalTab: React.FC<StudentPortalTabProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    URL Foto Profil
+              {/* Pasfoto 3x4 Profil Siswa */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-emerald-600" />
+                    Pasfoto Profil Siswa (Rasio 3x4)
                   </label>
-                  <input
-                    id="input-student-photo-url"
-                    type="url"
-                    placeholder="https://..."
-                    value={photoUrl}
-                    onChange={(e) => setPhotoUrl(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                  {photoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setPhotoUrl('')}
+                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Hapus Foto
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nomor WhatsApp / Kontak
-                  </label>
-                  <input
-                    id="input-student-phone"
-                    type="tel"
-                    placeholder="0812-xxxx-xxxx"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {/* Preview Pasfoto 3x4 */}
+                  <div className="relative w-24 h-32 rounded-xl bg-white border-2 border-emerald-500/40 shadow-xs flex items-center justify-center overflow-hidden shrink-0 group">
+                    {photoUrl ? (
+                      <img
+                        src={photoUrl}
+                        alt="Pasfoto Siswa"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="text-center p-2">
+                        <User className="w-8 h-8 text-slate-300 mx-auto mb-1" />
+                        <span className="text-[10px] text-slate-400 font-bold block leading-tight">
+                          Belum Ada Foto
+                        </span>
+                      </div>
+                    )}
+
+                    {isProcessingPhoto && (
+                      <div className="absolute inset-0 bg-slate-900/70 flex flex-col items-center justify-center text-white text-[10px] font-semibold gap-1">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Mengompres...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Upload Controls */}
+                  <div className="flex-1 space-y-2 w-full">
+                    {/* Drag & Drop Area */}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingPhoto(true);
+                      }}
+                      onDragLeave={() => setIsDraggingPhoto(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDraggingPhoto(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handlePhotoFileUpload(file);
+                      }}
+                      className={`border-2 border-dashed rounded-xl p-3 text-center transition ${
+                        isDraggingPhoto
+                          ? 'border-emerald-500 bg-emerald-50'
+                          : 'border-slate-300 hover:border-emerald-400 bg-white'
+                      }`}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handlePhotoFileUpload(file);
+                        }}
+                      />
+                      <p className="text-xs text-slate-600">
+                        Seret foto ke sini atau{' '}
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-emerald-700 font-bold underline hover:text-emerald-800 cursor-pointer"
+                        >
+                          Pilih Berkas
+                        </button>
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Mendukung JPG, PNG, atau WebP (otomatis dioptimasi ke ukuran 3x4)
+                      </p>
+                    </div>
+
+                    {/* Or URL input */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Atau Link:</span>
+                      <input
+                        id="input-student-photo-url"
+                        type="url"
+                        placeholder="https://...link-foto.jpg"
+                        value={photoUrl.startsWith('data:') ? '' : photoUrl}
+                        onChange={(e) => setPhotoUrl(e.target.value)}
+                        className="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nomor WhatsApp / Kontak Siswa
+                </label>
+                <input
+                  id="input-student-phone"
+                  type="tel"
+                  placeholder="0812-xxxx-xxxx"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
               </div>
 
               <div className="flex justify-end pt-2">
                 <button
                   id="btn-save-student-settings"
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2 cursor-pointer"
                 >
                   <Save className="w-4 h-4" />
-                  Simpan Perubahan Akun
+                  Simpan Foto & Perubahan Akun
                 </button>
               </div>
             </form>
           </div>
         </div>
       </div>
+
+      {/* Birthday Celebration Modal */}
+      {showBirthdayCard && (
+        <BirthdayCelebrationModal
+          user={currentUser}
+          student={student}
+          age={greetingDetails.age}
+          birthdayWish={greetingDetails.birthdayWish}
+          onClose={() => setShowBirthdayCard(false)}
+        />
+      )}
     </div>
   );
 };

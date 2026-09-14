@@ -91,6 +91,8 @@ import { StudentCardModal } from './components/StudentCardModal';
 import { SchoolSettingsModal } from './components/SchoolSettingsModal';
 import { ArchitectureDocsModal } from './components/ArchitectureDocsModal';
 import { DataBackupModal } from './components/DataBackupModal';
+import { BirthdayCelebrationModal } from './components/BirthdayCelebrationModal';
+import { getUserGreetingDetails } from './utils/greetings';
 
 // Icons
 import {
@@ -119,6 +121,8 @@ import {
   CalendarDays,
   UserPlus,
   ClipboardEdit,
+  Cake,
+  PartyPopper,
 } from 'lucide-react';
 
 export default function App() {
@@ -140,16 +144,67 @@ export default function App() {
     return loadCurrentUser();
   });
 
+  // Greeting & Birthday Modal states
+  const [showBirthdayModal, setShowBirthdayModal] = useState<boolean>(false);
+  const [welcomeGreetingBanner, setWelcomeGreetingBanner] = useState<{
+    show: boolean;
+    icon: string;
+    title: string;
+    message: string;
+  } | null>(null);
+
+  // Matched student for the currently logged in user (if student / pengurus)
+  const matchedStudentForUser = currentUser?.nipd
+    ? students.find((s) => s.nipd === currentUser.nipd)
+    : null;
+
+  // Personalized Greeting & Birthday info for currentUser
+  const userGreetingDetails = currentUser
+    ? getUserGreetingDetails(currentUser, matchedStudentForUser)
+    : null;
+
+  // Auto-sync currentUser's foto with student's foto
+  useEffect(() => {
+    if (currentUser?.nipd) {
+      const matched = students.find((s) => s.nipd === currentUser.nipd);
+      if (matched && matched.foto && matched.foto !== currentUser.foto) {
+        const updated = { ...currentUser, foto: matched.foto };
+        setCurrentUser(updated);
+        saveCurrentUser(updated);
+      }
+    }
+  }, [students, currentUser?.nipd]);
+
   // Login & Logout Handlers
   const handleLoginSuccess = (user: UserAccount) => {
-    saveCurrentUser(user);
-    setCurrentUser(user);
-    if (user.role === 'siswa') {
+    let finalUser = { ...user };
+    const matchedStd = finalUser.nipd ? students.find((s) => s.nipd === finalUser.nipd) : null;
+    if (matchedStd?.foto && !finalUser.foto) {
+      finalUser.foto = matchedStd.foto;
+    }
+
+    saveCurrentUser(finalUser);
+    setCurrentUser(finalUser);
+    if (finalUser.role === 'siswa') {
       setActiveTab('student_portal');
     } else {
       setActiveTab('attendance');
     }
-    showToast(`Selamat datang, ${user.nama}!`, 'success');
+
+    // Greet user on login & check birthday
+    const greeting = getUserGreetingDetails(finalUser, matchedStd);
+    if (greeting.isBirthday) {
+      setShowBirthdayModal(true);
+      showToast(`🎂 Selamat Ulang Tahun, ${finalUser.nama}! 🎉`, 'success');
+    } else {
+      setWelcomeGreetingBanner({
+        show: true,
+        icon: greeting.icon,
+        title: greeting.headlineGreeting,
+        message: greeting.subtext,
+      });
+      showToast(`${greeting.timeGreeting}, ${finalUser.nama}!`, 'success');
+    }
   };
 
   const handleLogout = () => {
@@ -568,6 +623,17 @@ export default function App() {
     saveUserList(updatedUsers);
     if (createdUser) {
       firestoreSaveUser(createdUser);
+    } else {
+      const matchedUser = updatedUsers.find((u) => u.nipd === s.nipd);
+      if (matchedUser) {
+        firestoreSaveUser(matchedUser);
+      }
+    }
+
+    if (currentUser?.nipd === s.nipd) {
+      const updatedSelf = { ...currentUser, foto: s.foto, nama: s.nama };
+      setCurrentUser(updatedSelf);
+      saveCurrentUser(updatedSelf);
     }
 
     showToast(`Data siswa ${s.nama} berhasil diperbarui.`, 'success');
@@ -645,6 +711,22 @@ export default function App() {
     setUsers(nextUsers);
     saveUserList(nextUsers);
     firestoreSaveUser(u);
+
+    // If this user is tied to a student, also update the student's foto
+    if (u.nipd) {
+      const stdIdx = students.findIndex((s) => s.nipd === u.nipd);
+      if (stdIdx >= 0 && students[stdIdx].foto !== u.foto) {
+        const nextStudents = [...students];
+        nextStudents[stdIdx] = {
+          ...nextStudents[stdIdx],
+          foto: u.foto,
+        };
+        setStudents(nextStudents);
+        saveStudentList(nextStudents);
+        firestoreSaveStudent(nextStudents[stdIdx]);
+      }
+    }
+
     if (currentUser?.id === u.id) {
       setCurrentUser(u);
       saveCurrentUser(u);
@@ -1010,13 +1092,42 @@ export default function App() {
               <span>{isCloudSynced ? 'Cloud Sync Aktif' : 'Menghubungkan Cloud...'}</span>
             </div>
 
-            {/* Current User Badge */}
+            {/* Current User Badge & Profile Photo */}
             <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-              <div className="w-8 h-8 rounded-xl bg-emerald-700 flex items-center justify-center text-xs font-bold text-white shadow-xs">
-                {currentUser.nama.slice(0, 2).toUpperCase()}
+              <div className="relative w-8 h-8 rounded-xl overflow-hidden bg-emerald-700 flex items-center justify-center text-xs font-bold text-white shadow-xs shrink-0 border border-slate-700">
+                {currentUser.foto ? (
+                  <img
+                    src={currentUser.foto}
+                    alt={currentUser.nama}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  currentUser.nama.slice(0, 2).toUpperCase()
+                )}
+                {userGreetingDetails?.isBirthday && (
+                  <span
+                    className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-400 text-[8px] flex items-center justify-center rounded-full shadow-xs"
+                    title="Ulang Tahun Hari Ini!"
+                  >
+                    🎂
+                  </span>
+                )}
               </div>
               <div className="hidden sm:block text-left text-xs">
-                <div className="font-bold text-white leading-tight">{currentUser.nama}</div>
+                <div className="font-bold text-white leading-tight flex items-center gap-1.5">
+                  <span className="truncate max-w-[120px] md:max-w-[160px]">{currentUser.nama}</span>
+                  {userGreetingDetails?.isBirthday && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBirthdayModal(true)}
+                      className="px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-400 to-rose-400 hover:from-amber-300 hover:to-rose-300 text-slate-900 font-extrabold text-[9px] shadow-xs cursor-pointer flex items-center gap-0.5 animate-pulse"
+                      title="Buka Kartu Ucapan Ulang Tahun"
+                    >
+                      <PartyPopper className="w-2.5 h-2.5" />
+                      <span>Ultah!</span>
+                    </button>
+                  )}
+                </div>
                 <div className="text-[10px] text-emerald-400 uppercase font-semibold">
                   {currentUser.role.replace('_', ' ')}
                 </div>
@@ -1265,8 +1376,40 @@ export default function App() {
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 space-y-3">
-            <div className="text-xs text-slate-400 pb-2 border-b border-slate-800">
-              Login sebagai: <strong className="text-white">{currentUser.nama}</strong> ({currentUser.role})
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+              <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-emerald-700 flex items-center justify-center text-sm font-bold text-white shadow-xs shrink-0 border border-slate-700">
+                {currentUser.foto ? (
+                  <img
+                    src={currentUser.foto}
+                    alt={currentUser.nama}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  currentUser.nama.slice(0, 2).toUpperCase()
+                )}
+                {userGreetingDetails?.isBirthday && (
+                  <span className="absolute -top-1 -right-1 text-xs">🎂</span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold text-white truncate">{currentUser.nama}</div>
+                <div className="text-[10px] text-emerald-400 uppercase font-semibold">
+                  {currentUser.role.replace('_', ' ')}
+                </div>
+              </div>
+              {userGreetingDetails?.isBirthday && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBirthdayModal(true);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="px-2 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-rose-400 text-slate-900 font-bold text-[10px] shadow-xs shrink-0 cursor-pointer flex items-center gap-1"
+                >
+                  <PartyPopper className="w-3 h-3" />
+                  <span>Ultah!</span>
+                </button>
+              )}
             </div>
 
             {/* Mobile Navigation Links */}
@@ -1477,6 +1620,33 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Welcome Greeting Banner (upon login or dismissing) */}
+        {welcomeGreetingBanner && welcomeGreetingBanner.show && (
+          <div className="mb-6 bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 border border-emerald-500/40 text-white rounded-2xl p-4 sm:p-5 shadow-lg flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3.5">
+              <span className="text-2xl sm:text-3xl p-2.5 bg-white/10 rounded-2xl shrink-0 backdrop-blur-xs">
+                {welcomeGreetingBanner.icon}
+              </span>
+              <div>
+                <div className="font-extrabold text-sm sm:text-base text-emerald-200">
+                  {welcomeGreetingBanner.title}
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5 max-w-2xl">
+                  {welcomeGreetingBanner.message}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWelcomeGreetingBanner(null)}
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition text-xs cursor-pointer shrink-0"
+              title="Tutup Sapaan"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* TAB 1: Class Attendance Tab */}
         {activeTab === 'attendance' && (
           <ClassAttendanceTab
@@ -1727,6 +1897,17 @@ export default function App() {
         <ArchitectureDocsModal
           isOpen={isArchDocsOpen}
           onClose={() => setIsArchDocsOpen(false)}
+        />
+      )}
+
+      {/* 7. Birthday Celebration Modal */}
+      {showBirthdayModal && currentUser && (
+        <BirthdayCelebrationModal
+          user={currentUser}
+          student={matchedStudentForUser}
+          age={userGreetingDetails?.age}
+          birthdayWish={userGreetingDetails?.birthdayWish}
+          onClose={() => setShowBirthdayModal(false)}
         />
       )}
     </div>

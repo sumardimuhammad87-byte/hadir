@@ -481,15 +481,28 @@ export const ManageStudentAccountsTab: React.FC<ManageStudentAccountsTabProps> =
                     const isPasswordShown = !!showPasswordMap[user.id];
                     const rawPassword = user.password || '123';
 
-                    return (
-                      <tr key={user.id} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900">{user.nama}</div>
-                          <div className="text-[11px] font-mono text-teal-700 font-semibold flex items-center gap-1">
-                            <span>NIPD: {user.nipd || user.username}</span>
-                          </div>
-                        </td>
+                      const studentPhoto = user.foto || students.find((s) => s.nipd === user.nipd)?.foto;
+
+                      return (
+                        <tr key={user.id} className="hover:bg-slate-50/70 transition">
+                          <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-10 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
+                                {studentPhoto ? (
+                                  <img src={studentPhoto} alt={user.nama} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-[10px] font-bold text-slate-400">{user.nama.slice(0, 2).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-bold text-slate-900">{user.nama}</div>
+                                <div className="text-[11px] font-mono text-teal-700 font-semibold flex items-center gap-1">
+                                  <span>NIPD: {user.nipd || user.username}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
                         <td className="py-3 px-4">
                           <span className="inline-block px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                             {getRombelName(user.rombelId)}

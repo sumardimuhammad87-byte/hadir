@@ -188,6 +188,7 @@ export function ensureStudentUserAccount(
     updated[existingIdx] = {
       ...prev,
       nama: student.nama,
+      foto: student.foto !== undefined ? student.foto : prev.foto,
       role: isKetua ? 'ketua_kelas' : isSekretaris ? 'sekretaris' : prev.role === 'admin' || prev.role === 'guru' ? prev.role : 'siswa',
       rombelId: student.rombelId,
       jabatan: assignedJabatan,
@@ -208,6 +209,7 @@ export function ensureStudentUserAccount(
     nipd: cleanNipd,
     rombelId: student.rombelId,
     jabatan: assignedJabatan,
+    foto: student.foto,
     statusAktif: true,
   };
 

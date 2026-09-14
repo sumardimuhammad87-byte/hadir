@@ -813,9 +813,30 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
                         <div className="text-[10px] text-slate-400 font-mono">NISN: {std.nisn}</div>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900">{std.nama}</div>
-                        <div className="text-[11px] text-slate-500">
-                          {std.jk === 'P' ? 'Perempuan' : 'Laki-Laki'} • {std.tempatLahir}
+                        <div className="flex items-center gap-2.5">
+                          {std.foto ? (
+                            <img
+                              src={std.foto}
+                              alt={std.nama}
+                              className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-slate-100 shadow-2xs"
+                            />
+                          ) : (
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[10px] shrink-0 border ${
+                                std.jk === 'P'
+                                  ? 'bg-rose-50 text-rose-600 border-rose-200'
+                                  : 'bg-sky-50 text-sky-600 border-sky-200'
+                              }`}
+                            >
+                              {std.nama.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 truncate">{std.nama}</div>
+                            <div className="text-[11px] text-slate-500 truncate">
+                              {std.jk === 'P' ? 'Perempuan' : 'Laki-Laki'} • {std.tempatLahir}
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="py-3 px-4">

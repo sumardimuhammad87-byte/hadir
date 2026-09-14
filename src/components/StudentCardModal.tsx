@@ -92,55 +92,84 @@ export const StudentCardModal: React.FC<StudentCardModalProps> = ({
               </div>
             </div>
 
-            {/* Student Info & QR */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-              {/* Photo & QR Code */}
-              <div className="flex flex-col items-center justify-center bg-white p-2 rounded-lg border border-emerald-100 shadow-xs">
-                {qrUrl ? (
-                  <img
-                    src={qrUrl}
-                    alt={`QR Code NIPD ${student.nipd}`}
-                    className="w-36 h-36 object-contain"
-                  />
-                ) : (
-                  <div className="w-36 h-36 flex items-center justify-center bg-slate-100 text-slate-400">
-                    Memuat QR...
-                  </div>
-                )}
-                <span className="text-[10px] font-mono font-semibold text-slate-600 mt-1 bg-slate-100 px-2 py-0.5 rounded">
-                  {student.nipd}
-                </span>
+            {/* Student Info, Photo & QR */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+              {/* Photo & QR Code Column */}
+              <div className="sm:col-span-5 flex flex-col items-center justify-center bg-white p-2.5 rounded-xl border border-emerald-100 shadow-xs space-y-2">
+                {/* Pasfoto Siswa 3x4 */}
+                <div className="relative">
+                  {student.foto ? (
+                    <img
+                      src={student.foto}
+                      alt={`Pasfoto ${student.nama}`}
+                      className="w-20 h-28 object-cover rounded-md border-2 border-emerald-500 shadow-xs bg-slate-100"
+                    />
+                  ) : (
+                    <div className="w-20 h-28 rounded-md border-2 border-dashed border-emerald-300 bg-emerald-50/50 flex flex-col items-center justify-center text-slate-400 p-1 text-center">
+                      <User className="w-8 h-8 text-emerald-400 mb-0.5" />
+                      <span className="text-[8px] font-semibold text-emerald-700 leading-tight">Pasfoto 3x4</span>
+                    </div>
+                  )}
+                  <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-emerald-700 text-white px-1.5 py-0.5 rounded shadow-xs">
+                    {student.jk}
+                  </span>
+                </div>
+
+                {/* QR Code Barcode Absensi */}
+                <div className="text-center">
+                  {qrUrl ? (
+                    <img
+                      src={qrUrl}
+                      alt={`QR Code NIPD ${student.nipd}`}
+                      className="w-24 h-24 object-contain mx-auto"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 flex items-center justify-center bg-slate-100 text-slate-400 text-[10px]">
+                      Memuat QR...
+                    </div>
+                  )}
+                  <span className="text-[10px] font-mono font-bold text-emerald-800 mt-1 inline-block bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    {student.nipd}
+                  </span>
+                </div>
               </div>
 
-              {/* Bio Details */}
-              <div className="sm:col-span-2 space-y-1.5 text-xs">
+              {/* Bio Details Column */}
+              <div className="sm:col-span-7 space-y-2 text-xs">
                 <div>
-                  <span className="text-slate-500 text-[11px] block">Nama Lengkap:</span>
-                  <p className="font-bold text-slate-900 text-sm">{student.nama}</p>
+                  <span className="text-slate-500 text-[11px] block font-medium">Nama Lengkap Siswa:</span>
+                  <p className="font-bold text-slate-900 text-sm leading-tight">{student.nama}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  <div>
+                    <span className="text-slate-500 text-[10px] block">NIPD (ID Unik):</span>
+                    <p className="font-mono font-bold text-emerald-700 text-[11px]">{student.nipd}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 text-[10px] block">NISN:</span>
+                    <p className="font-mono font-semibold text-slate-800 text-[11px]">{student.nisn}</p>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <span className="text-slate-500 text-[11px] block">NIPD (Primary Key):</span>
-                    <p className="font-mono font-semibold text-emerald-700">{student.nipd}</p>
+                    <span className="text-slate-500 text-[10px] block">Rombel / Kelas:</span>
+                    <p className="font-semibold text-slate-800 text-[11px]">{rombel?.nama || student.rombelId}</p>
                   </div>
                   <div>
-                    <span className="text-slate-500 text-[11px] block">NISN:</span>
-                    <p className="font-mono font-semibold text-slate-800">{student.nisn}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-slate-500 text-[11px] block">Rombel / Kelas:</span>
-                    <p className="font-semibold text-slate-800">{rombel?.nama || student.rombelId}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-[11px] block">Jenis Kelamin:</span>
-                    <p className="font-medium text-slate-800">{student.jk === 'P' ? 'Perempuan (P)' : 'Laki-Laki (L)'}</p>
+                    <span className="text-slate-500 text-[10px] block">Jenis Kelamin:</span>
+                    <p className="font-medium text-slate-800 text-[11px]">
+                      {student.jk === 'P' ? 'Perempuan (P)' : 'Laki-Laki (L)'}
+                    </p>
                   </div>
                 </div>
                 <div>
-                  <span className="text-slate-500 text-[11px] block">Tempat, Tanggal Lahir:</span>
-                  <p className="text-slate-700">{student.tempatLahir}, {student.tanggalLahir}</p>
+                  <span className="text-slate-500 text-[10px] block">Tempat, Tanggal Lahir:</span>
+                  <p className="text-slate-700 text-[11px]">{student.tempatLahir}, {student.tanggalLahir}</p>
+                </div>
+                <div className="pt-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                    Status: <strong className="text-emerald-700">Aktif Terdaftar</strong>
+                  </span>
                 </div>
               </div>
             </div>

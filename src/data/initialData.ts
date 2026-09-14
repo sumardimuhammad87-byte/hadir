@@ -218,33 +218,33 @@ export const INITIAL_USERS: UserAccount[] = [
     jabatan: 'Wali Kelas X',
     statusAktif: true,
   },
-  // 6. Ketua Kelas (Ketua Kelas XI Farmasi: ANGGRAINI, NIPD: 25.26.10.004)
+  // 6. Ketua Kelas (1 Akun Terpadu Siswa & Ketua Kelas: ANGGRAINI, NIPD: 25.26.10.004)
   {
-    id: 'USR-KETUA-XIFAR',
-    email: 'ketua.xifar@siswa.sch.id',
-    username: 'ketua_xifar',
+    id: 'USR-STD-252610004',
+    email: '25.26.10.004@siswa.sch.id',
+    username: '25.26.10.004',
     nama: 'ANGGRAINI (Ketua Kelas)',
     role: 'ketua_kelas',
-    password: 'ketua123',
+    password: '123',
     nipd: '25.26.10.004',
     rombelId: 'ROMBEL-XI-FAR',
     jabatan: 'Ketua Kelas XI Asisten Farmasi',
     statusAktif: true,
   },
-  // 7. Sekretaris Kelas (Sekretaris Kelas XI Farmasi: Dinda Khoirunnisa, NIPD: 25.26.10.006)
+  // 7. Sekretaris Kelas (1 Akun Terpadu Siswa & Sekretaris: Dinda Khoirunnisa, NIPD: 25.26.10.006)
   {
-    id: 'USR-SEK-XIFAR',
-    email: 'sekretaris.xifar@siswa.sch.id',
-    username: 'sek_xifar',
+    id: 'USR-STD-252610006',
+    email: '25.26.10.006@siswa.sch.id',
+    username: '25.26.10.006',
     nama: 'Dinda Khoirunnisa Hidayat (Sekretaris)',
     role: 'sekretaris',
-    password: 'sek123',
+    password: '123',
     nipd: '25.26.10.006',
     rombelId: 'ROMBEL-XI-FAR',
     jabatan: 'Sekretaris Kelas XI Asisten Farmasi',
     statusAktif: true,
   },
-  // 8. Contoh Akun Siswa (CINTA DWI SHAVIRA - Kelas X, NIPD: 26.27.10.002)
+  // 8. Contoh Akun Siswa Reguler (CINTA DWI SHAVIRA - Kelas X, NIPD: 26.27.10.002)
   {
     id: 'USR-SISWA-1',
     email: '26.27.10.002@siswa.sch.id',
@@ -259,44 +259,39 @@ export const INITIAL_USERS: UserAccount[] = [
   },
 ];
 
-// Helper to generate seed attendance records for today & recent dates
+// Helper to generate seed attendance records
+// PERMINTAAN USER: "kalau belum di absen posisinya jangan absen"
+// Hanya sebagian kecil siswa yang dibuatkan catatan presensi awal, sisanya belum diabsen (status: belum / tidak ada record)
 export function generateInitialAttendance(students: Student[], dateStr: string): AttendanceRecord[] {
   const records: AttendanceRecord[] = [];
-  const times = ['06:48:12', '06:51:30', '06:55:04', '07:02:15', '07:11:42', '07:18:09', '07:22:45'];
+  const times = ['06:48:12', '06:51:30', '06:55:04', '07:02:15', '07:11:42'];
 
-  students.forEach((student, idx) => {
-    // Determine realistic status: most hadir, a few sakit/izin/alfa
+  // Hanya mencatat beberapa siswa awal (misal 6 siswa pertama dari rombel X) agar siswa lainnya tetap dalam posisi "Belum Diabsen"
+  students.slice(0, 6).forEach((student, idx) => {
     let status: 'hadir' | 'sakit' | 'izin' | 'alfa' = 'hadir';
     let metode: 'qr_scan' | 'token' | 'manual_admin' | 'manual_guru' | 'manual_pengurus' = 'qr_scan';
-    let ket = 'Tepat waktu';
+    let ket = 'Tepat waktu via scan QR kartu';
 
-    if (idx % 19 === 0) {
+    if (idx === 4) {
       status = 'sakit';
       metode = 'manual_admin';
-      ket = 'Surat keterangan dokter terlampir';
-    } else if (idx % 23 === 0) {
+      ket = 'Surat keterangan dokter';
+    } else if (idx === 5) {
       status = 'izin';
       metode = 'manual_pengurus';
-      ket = 'Keperluan keluarga mendesak';
-    } else if (idx % 37 === 0) {
-      status = 'alfa';
-      metode = 'manual_admin';
-      ket = 'Tanpa konfirmasi';
-    } else if (idx % 4 === 0) {
-      metode = 'token';
-      ket = 'Absen mandiri via token rombel';
+      ket = 'Izin keperluan keluarga';
     }
 
     records.push({
-      id: `ATT-${dateStr}-${student.nipd.replace(/\./g, '')}`,
+      id: `ATT-${dateStr}-${student.nipd.replace(/[^a-zA-Z0-9]/g, '')}`,
       nipd: student.nipd,
       rombelId: student.rombelId,
       tanggal: dateStr,
-      waktu: status === 'hadir' ? times[idx % times.length] : '07:00:00',
+      waktu: status === 'hadir' ? times[idx % times.length] : '07:15:00',
       status,
       metode,
-      recordedByRole: metode === 'manual_admin' ? 'admin' : (metode === 'token' ? 'siswa' : 'guru'),
-      recordedByName: metode === 'manual_admin' ? 'Administrator' : (metode === 'token' ? student.nama : 'Guru Piket'),
+      recordedByRole: metode === 'manual_admin' ? 'admin' : (metode === 'manual_pengurus' ? 'ketua_kelas' : 'guru'),
+      recordedByName: metode === 'manual_admin' ? 'Administrator' : (metode === 'manual_pengurus' ? 'Ketua Kelas' : 'Guru Piket'),
       keterangan: ket,
     });
   });

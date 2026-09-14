@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { UserAccount, Student, Rombel, AttendanceRecord, AttendanceToken, SchoolConfig } from '../types';
 import { generateQrDataUrl } from '../utils/qrcode';
 import { getCurrentTimeStr, getTodayDateStr, calculateAttendanceRate } from '../utils/storage';
-import { QrCode, Key, CheckCircle2, AlertCircle, Clock, Shield, Lock, User, Download, Save } from 'lucide-react';
+import { getHolidayInfo, formatIndonesianDateWithDay } from '../utils/holidays';
+import { QrCode, Key, CheckCircle2, AlertCircle, Clock, Shield, Lock, User, Download, Save, Calendar, Sparkles } from 'lucide-react';
 
 interface StudentPortalTabProps {
   currentUser: UserAccount;
@@ -167,20 +168,58 @@ export const StudentPortalTab: React.FC<StudentPortalTabProps> = ({
         </div>
       </div>
 
+      {/* Tanggal Merah / Hari Libur Notification in Student Portal */}
+      {(() => {
+        const holidayInfo = getHolidayInfo(todayStr, schoolConfig);
+        if (!holidayInfo.isHoliday) return null;
+        return (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-rose-950 shadow-xs">
+            <Calendar className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="space-y-1 leading-relaxed">
+              <p className="font-bold text-rose-900 flex items-center gap-2">
+                <span>Hari Ini Tanggal Merah / Libur: {holidayInfo.holidayName}</span>
+                <span className="font-mono text-[11px] bg-rose-200 text-rose-800 px-2 py-0.5 rounded">
+                  {formatIndonesianDateWithDay(todayStr)}
+                </span>
+              </p>
+              <p className="text-rose-800 text-[11px]">
+                {holidayInfo.description ||
+                  'Hari ini merupakan hari libur resmi atau akhir pekan. Presensi mandiri ditiadakan kecuali ada kegiatan khusus atau ekstrakurikuler sekolah.'}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Role Notice & Access Explainer */}
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-amber-900">
-        <Shield className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-        <div className="space-y-1 leading-relaxed">
-          <p className="font-bold">
-            Anda sedang masuk dengan Akun Siswa: {currentUser.nama} (NIPD: {studentNipd || '-'})
-          </p>
-          <p className="text-amber-800 text-[11px]">
-            Sesuai kebijakan keamanan, akun siswa hanya dapat mengakses <strong>Portal Siswa</strong> (Presensi Mandiri via Token, Kartu Pelajar Digital & Riwayat Presensi Anda).
-            Menu <em>Pengaturan Profil Sekolah, Data Siswa Lain, Kelola Rombel, dan Kelola Pengguna</em> hanya dapat diakses oleh <strong>Administrator</strong> atau <strong>Guru</strong>.
-            Jika Anda ingin mengelola data sekolah atau melihat semua siswa, silakan klik tombol <strong>Keluar</strong> di pojok kanan atas dan masuk kembali menggunakan akun Administrator.
-          </p>
+      {currentUser.role === 'ketua_kelas' || currentUser.role === 'sekretaris' ? (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-emerald-950 shadow-xs">
+          <Shield className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="space-y-1 leading-relaxed">
+            <p className="font-bold text-emerald-900">
+              Akun Terpadu Pengurus Kelas: {currentUser.nama} (Sebagai Siswa & {currentUser.role === 'ketua_kelas' ? 'Ketua Kelas' : 'Sekretaris'})
+            </p>
+            <p className="text-emerald-800 text-[11px]">
+              Anda hanya memiliki <strong>1 akun tunggal</strong> untuk login siswa sekaligus pengurus kelas ({currentUser.username}).
+              Anda memiliki hak istimewa untuk mengabsen teman sekelas Anda di tab <strong>Presensi Per Kelas</strong> serta membuat token presensi rombel.
+              Di tab ini, Anda dapat memantau kartu pelajar digital dan statistik kehadiran pribadi Anda sendiri.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-amber-900 shadow-xs">
+          <Shield className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1 leading-relaxed">
+            <p className="font-bold">
+              Anda sedang masuk dengan Akun Siswa: {currentUser.nama} (NIPD: {studentNipd || '-'})
+            </p>
+            <p className="text-amber-800 text-[11px]">
+              Sesuai kebijakan keamanan, akun siswa hanya dapat mengakses <strong>Portal Siswa</strong> (Presensi Mandiri via Token, Kartu Pelajar Digital & Riwayat Presensi Anda).
+              Menu <em>Pengaturan Profil Sekolah, Data Siswa Lain, Kelola Rombel, dan Kelola Pengguna</em> hanya dapat diakses oleh <strong>Administrator</strong> atau <strong>Guru</strong>.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Grid: 2 Columns (Left: QR & Token Check-in; Right: Stats & Settings) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

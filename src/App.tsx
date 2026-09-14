@@ -45,6 +45,8 @@ import {
   ensureTeacherUserAccount,
   removeTeacherUserAccount,
 } from './utils/storage';
+import { syncRombelOfficersWithUserAccounts } from './utils/officerSync';
+import { getHolidayInfo, formatIndonesianDateWithDay } from './utils/holidays';
 import {
   subscribeToFirestore,
   firestoreSaveStudent,
@@ -312,7 +314,15 @@ export default function App() {
       }
     } else if ((currentUser?.role === 'ketua_kelas' || currentUser?.role === 'sekretaris') && activeTab === 'reports') {
       setActiveTab('attendance');
-    } else if (activeTab === 'student_portal' && currentUser && currentUser.role !== 'siswa' && currentUser.role !== 'admin') {
+    } else if (
+      activeTab === 'student_portal' &&
+      currentUser &&
+      currentUser.role !== 'siswa' &&
+      currentUser.role !== 'admin' &&
+      currentUser.role !== 'guru' &&
+      currentUser.role !== 'ketua_kelas' &&
+      currentUser.role !== 'sekretaris'
+    ) {
       setActiveTab('attendance');
     }
   }, [currentUser?.role, activeTab]);
@@ -434,7 +444,22 @@ export default function App() {
     if (targetRec) {
       firestoreDeleteAttendanceRecord(targetRec.id);
     }
-    showToast(`Presensi tanggal ${tanggal} berhasil direset menjadi "Belum Absen".`, 'info');
+    showToast(`Presensi tanggal ${tanggal} berhasil dikembalikan ke posisi "Belum Diabsen".`, 'info');
+  };
+
+  // Mass Reset to "Belum Diabsen" for multiple students
+  const handleBulkResetAttendance = (nipds: string[], targetDate?: string) => {
+    const dateToUse = targetDate || getTodayDateStr();
+    let current = [...attendanceRecords];
+    const targetRecs = current.filter((r) => nipds.includes(r.nipd) && r.tanggal === dateToUse);
+    const targetIds = targetRecs.map((r) => r.id);
+    const next = current.filter((r) => !(nipds.includes(r.nipd) && r.tanggal === dateToUse));
+    setAttendanceRecords(next);
+    saveAttendanceRecords(next);
+    if (targetIds.length > 0) {
+      firestoreDeleteAttendanceRecordsBatch(targetIds);
+    }
+    showToast(`${nipds.length} siswa berhasil dikembalikan ke status "Belum Diabsen" (${dateToUse}).`, 'info');
   };
 
   // QR Scan Callback (from camera or file upload)
@@ -568,7 +593,12 @@ export default function App() {
     setRombels(nextRombels);
     saveRombelList(nextRombels);
     firestoreSaveRombel(r);
-    showToast(`Rombel "${r.nama}" berhasil dibuat.`, 'success');
+
+    // Sync officer accounts so appointed ketua/sekretaris have 1 single account with officer role
+    const { updatedUsers } = syncRombelOfficersWithUserAccounts(nextRombels, students, users);
+    setUsers(updatedUsers);
+    saveUserList(updatedUsers);
+    showToast(`Rombel "${r.nama}" berhasil dibuat & akun pengurus disinkronkan.`, 'success');
   };
 
   const handleUpdateRombel = (r: Rombel) => {
@@ -576,7 +606,22 @@ export default function App() {
     setRombels(nextRombels);
     saveRombelList(nextRombels);
     firestoreSaveRombel(r);
-    showToast(`Rombel "${r.nama}" berhasil diperbarui.`, 'success');
+
+    // Sync officer accounts so appointed ketua/sekretaris have 1 single account with officer role
+    const { updatedUsers } = syncRombelOfficersWithUserAccounts(nextRombels, students, users);
+    setUsers(updatedUsers);
+    saveUserList(updatedUsers);
+
+    // If current logged-in user is one of the affected students, update currentUser in session
+    if (currentUser?.nipd) {
+      const updatedSelf = updatedUsers.find((u) => u.nipd === currentUser.nipd);
+      if (updatedSelf && (updatedSelf.role !== currentUser.role || updatedSelf.rombelId !== currentUser.rombelId)) {
+        setCurrentUser(updatedSelf);
+        saveCurrentUser(updatedSelf);
+      }
+    }
+
+    showToast(`Rombel "${r.nama}" berhasil diperbarui & akun pengurus disinkronkan.`, 'success');
   };
 
   const handleDeleteRombel = (id: string) => {
@@ -1140,7 +1185,7 @@ export default function App() {
                     </button>
                   )}
 
-                  {/* Student Portal Preview Button for Admin/Guru to check how students see the app */}
+                  {/* Student Portal Navigation Button for Officer & Admin/Guru */}
                   <button
                     id="tab-nav-student-preview"
                     onClick={() => setActiveTab('student_portal')}
@@ -1151,7 +1196,9 @@ export default function App() {
                     }`}
                   >
                     <Sparkles className="w-4 h-4 text-emerald-400" />
-                    Pratinjau Portal Siswa
+                    {currentUser.role === 'ketua_kelas' || currentUser.role === 'sekretaris'
+                      ? 'Portal Siswa Saya'
+                      : 'Pratinjau Portal Siswa'}
                   </button>
                 </>
               ) : (
@@ -1439,6 +1486,7 @@ export default function App() {
             attendanceRecords={attendanceRecords}
             onUpdateAttendance={handleUpdateSingleAttendance}
             onResetAttendance={handleResetStudentAttendance}
+            onBulkResetAttendance={handleBulkResetAttendance}
             onSaveRecord={handleSaveAttendanceRecord}
             onEditAttendanceRecord={() => setActiveTab('manage_attendance')}
             onBulkUpdateAttendance={handleBulkUpdateAttendance}

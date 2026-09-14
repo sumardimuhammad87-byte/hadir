@@ -9,6 +9,7 @@ import {
   SchoolConfig,
 } from '../types';
 import { getCurrentTimeStr, getTodayDateStr } from '../utils/storage';
+import { getHolidayInfo, formatIndonesianDateWithDay } from '../utils/holidays';
 import {
   CheckCircle2,
   AlertCircle,
@@ -45,6 +46,7 @@ interface ClassAttendanceTabProps {
   onSaveRecord?: (record: AttendanceRecord) => void;
   onEditAttendanceRecord?: (record: AttendanceRecord) => void;
   onBulkUpdateAttendance?: (nipds: string[], status: AttendanceStatus, targetDate?: string) => void;
+  onBulkResetAttendance?: (nipds: string[], targetDate?: string) => void;
   onOpenScanner: () => void;
   onOpenTokenManager: () => void;
   onSelectStudentCard: (student: Student) => void;
@@ -64,6 +66,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
   onSaveRecord,
   onEditAttendanceRecord,
   onBulkUpdateAttendance,
+  onBulkResetAttendance,
   onOpenScanner,
   onOpenTokenManager,
   onSelectStudentCard,
@@ -74,6 +77,9 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
   const todayStr = getTodayDateStr();
   const [internalDate, setInternalDate] = useState<string>(todayStr);
   const selectedDate = propSelectedDate || internalDate;
+
+  // Holiday & Non-effective day detection
+  const holidayInfo = getHolidayInfo(selectedDate, schoolConfig);
 
   // State for Editing Date & Time directly from Class Attendance view
   const [editingDateTimeStudent, setEditingDateTimeStudent] = useState<{
@@ -260,6 +266,25 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
     }
   };
 
+  // Reset Seluruh Siswa di Rombel ke Posisi "Belum Diabsen" (Hapus kesalahan presensi massal)
+  const handleResetAllBelumAbsen = () => {
+    if (!canEdit) return;
+    if (
+      window.confirm(
+        `Kembalikan semua siswa (${currentStudents.length} siswa) ke status "Belum Diabsen" pada tanggal ${selectedDate}?\n\nPosisinya akan kembali seperti semula belum diabsen.`
+      )
+    ) {
+      const targetNipds = currentStudents.map((s) => s.nipd);
+      if (onBulkResetAttendance) {
+        onBulkResetAttendance(targetNipds, selectedDate);
+      } else if (onResetAttendance) {
+        targetNipds.forEach((nipd) => {
+          onResetAttendance(nipd, selectedDate);
+        });
+      }
+    }
+  };
+
   // Perhitungan statistik rombel aktif
   let hadirCount = 0;
   let sakitCount = 0;
@@ -365,18 +390,29 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
               <button
                 id="btn-role-mark-all-present"
                 onClick={handleMarkAllHadir}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:shadow-lg transition flex items-center gap-2 border border-emerald-400/30"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:shadow-lg transition flex items-center gap-2 border border-emerald-400/30 cursor-pointer"
                 title={`Tandai seluruh siswa kelas ${assignedRombel.nama} hadir hari ini`}
               >
                 <UserCheck className="w-4 h-4 text-emerald-200" />
                 <span>Set Semua Hadir</span>
               </button>
 
+              {/* Tombol Reset Belum Diabsen */}
+              <button
+                id="btn-role-reset-all-unattended"
+                onClick={handleResetAllBelumAbsen}
+                className="px-3 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 text-xs font-bold transition flex items-center gap-1.5 border border-slate-600 cursor-pointer"
+                title="Kembalikan semua siswa ke status 'Belum Diabsen'"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                <span>Reset Belum Absen</span>
+              </button>
+
               {/* 2. Tombol Generator Token Khusus Rombel */}
               <button
                 id="btn-role-generate-token"
                 onClick={onOpenTokenManager}
-                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md hover:shadow-lg transition flex items-center gap-2 border border-indigo-400/30"
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md hover:shadow-lg transition flex items-center gap-2 border border-indigo-400/30 cursor-pointer"
                 title={`Buat token 6-digit untuk presensi mandiri siswa ${assignedRombel.nama}`}
               >
                 <Key className="w-4 h-4 text-indigo-200" />
@@ -387,7 +423,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
               <button
                 id="btn-role-scanner-qr"
                 onClick={onOpenScanner}
-                className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2 border border-slate-600"
+                className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2 border border-slate-600 cursor-pointer"
                 title="Buka scanner kamera QR untuk scan kartu NIPD siswa"
               >
                 <QrCode className="w-4 h-4 text-emerald-400" />
@@ -397,13 +433,13 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
           </div>
 
           {/* Quick Real-time Rombel Metric Pills */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 mt-4 pt-4 border-t border-white/10 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-white/10 text-xs">
             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/10">
-              <span className="text-[10px] text-slate-300 font-medium block">Total Siswa Rombel</span>
+              <span className="text-[10px] text-slate-300 font-medium block">Total Siswa</span>
               <span className="text-base font-black text-white">{totalSiswaVisible} Siswa</span>
             </div>
             <div className="bg-emerald-500/20 px-3 py-2 rounded-xl border border-emerald-400/30">
-              <span className="text-[10px] text-emerald-300 font-medium block">Hadir Hari Ini</span>
+              <span className="text-[10px] text-emerald-300 font-medium block">Hadir</span>
               <span className="text-base font-black text-emerald-200">{hadirCount} Siswa</span>
             </div>
             <div className="bg-amber-500/20 px-3 py-2 rounded-xl border border-amber-400/30">
@@ -414,9 +450,13 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
               <span className="text-[10px] text-sky-300 font-medium block">Izin (I)</span>
               <span className="text-base font-black text-sky-200">{izinCount} Siswa</span>
             </div>
-            <div className="bg-rose-500/20 px-3 py-2 rounded-xl border border-rose-400/30 col-span-2 sm:col-span-1">
+            <div className="bg-rose-500/20 px-3 py-2 rounded-xl border border-rose-400/30">
               <span className="text-[10px] text-rose-300 font-medium block">Alfa (A)</span>
               <span className="text-base font-black text-rose-200">{alfaCount} Siswa</span>
+            </div>
+            <div className="bg-slate-700/60 px-3 py-2 rounded-xl border border-slate-500/30 col-span-2 sm:col-span-1">
+              <span className="text-[10px] text-slate-300 font-medium block">Belum Diabsen</span>
+              <span className="text-base font-black text-amber-300">{belumAbsenCount} Siswa</span>
             </div>
           </div>
         </section>
@@ -426,11 +466,11 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
           2. GENERAL CONTROL BAR & DATE PICKER
          ========================================================================= */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        {/* Left: Date Selector */}
+        {/* Left: Date Selector with Holiday Indicator */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 bg-slate-100 px-3.5 py-2 rounded-xl border border-slate-200">
-            <Calendar className="w-4 h-4 text-emerald-600" />
-            <span className="text-xs font-semibold text-slate-600">Tanggal Presensi:</span>
+            <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="text-xs font-semibold text-slate-600">Tanggal:</span>
             <input
               id="input-attendance-date"
               type="date"
@@ -438,6 +478,20 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
               onChange={(e) => handleDateChange(e.target.value)}
               className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
             />
+          </div>
+
+          {/* Formatted Date & Holiday Badge */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
+              {formatIndonesianDateWithDay(selectedDate)}
+            </span>
+
+            {holidayInfo.isHoliday && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-rose-600" />
+                Libur: {holidayInfo.holidayName}
+              </span>
+            )}
           </div>
 
           {isRombelLeader ? (
@@ -463,7 +517,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
               <button
                 id="btn-shortcut-to-attendance-crud"
                 onClick={onNavigateToCrud}
-                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                 title="Buka panel lengkap Kelola & Koreksi Absen (CRUD Presensi)"
               >
                 <ClipboardEdit className="w-4 h-4 text-indigo-600" />
@@ -474,7 +528,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
             <button
               id="btn-open-camera-scanner"
               onClick={onOpenScanner}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2 cursor-pointer"
             >
               <QrCode className="w-4 h-4" />
               Scanner Kamera QR
@@ -483,26 +537,67 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
             <button
               id="btn-open-token-modal"
               onClick={onOpenTokenManager}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2"
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow transition flex items-center gap-2 cursor-pointer"
             >
               <Key className="w-4 h-4" />
               Token Absen
             </button>
 
             {canEdit && (
-              <button
-                id="btn-mark-all-present"
-                onClick={handleMarkAllHadir}
-                title="Tandai semua siswa di kelas ini hadir"
-                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-300 transition flex items-center gap-1.5"
-              >
-                <UserCheck className="w-4 h-4 text-emerald-600" />
-                <span className="hidden sm:inline">Set Semua</span> Hadir
-              </button>
+              <>
+                <button
+                  id="btn-mark-all-present"
+                  onClick={handleMarkAllHadir}
+                  title="Tandai semua siswa di kelas ini hadir"
+                  className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-300 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <UserCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Set Semua Hadir</span>
+                </button>
+
+                <button
+                  id="btn-reset-all-unattended"
+                  onClick={handleResetAllBelumAbsen}
+                  title="Kembalikan semua siswa ke status Belum Diabsen"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-300 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Reset Belum Absen</span>
+                </button>
+              </>
             )}
           </div>
         )}
       </div>
+
+      {/* Tanggal Merah / Hari Libur Alert Banner */}
+      {holidayInfo.isHoliday && (
+        <div
+          id="banner-holiday-alert"
+          className="bg-gradient-to-r from-rose-50 via-rose-100 to-amber-50 border-2 border-rose-300 rounded-3xl p-4 sm:p-5 shadow-xs flex items-start gap-3.5 text-rose-950"
+        >
+          <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+            <Calendar className="w-5 h-5" />
+          </div>
+          <div className="flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-600 text-white tracking-wide uppercase">
+                TANGGAL MERAH / HARI LIBUR
+              </span>
+              <span className="text-sm sm:text-base font-black text-rose-900">
+                {holidayInfo.holidayName}
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-200 text-rose-800 border border-rose-300 font-mono">
+                {formatIndonesianDateWithDay(selectedDate)}
+              </span>
+            </div>
+            <p className="text-xs text-rose-800 leading-relaxed font-medium">
+              {holidayInfo.description ||
+                'Tanggal yang dipilih merupakan hari libur resmi atau akhir pekan non-efektif. Pembelajaran ditiadakan secara normal. Presensi tetap dapat dicatat jika ada kegiatan khusus/ekstrakurikuler.'}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           3. CLASS / ROMBEL NAVIGATION TABS
@@ -574,7 +669,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
       {/* =========================================================================
           4. STATISTIK RINGKASAN KEHADIRAN
          ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
             Total Siswa
@@ -617,6 +712,14 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
           </span>
           <p className="text-xl font-bold text-rose-700 mt-1">{alfaCount}</p>
           <span className="text-[10px] text-rose-600">Tanpa Keterangan</span>
+        </div>
+
+        <div className="bg-slate-100 p-3.5 rounded-2xl border border-slate-300 shadow-xs">
+          <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+            Belum Diabsen
+          </span>
+          <p className="text-xl font-bold text-slate-800 mt-1">{belumAbsenCount}</p>
+          <span className="text-[10px] text-slate-500">Posisinya Belum Absen</span>
         </div>
 
         <div className="bg-slate-900 p-3.5 rounded-2xl text-white shadow-xs">
@@ -677,6 +780,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
                 <th className="py-3.5 px-4">NIPD & NISN</th>
                 <th className="py-3.5 px-4">Nama Siswa</th>
                 <th className="py-3.5 px-4">Kelas (Rombel)</th>
+                <th className="py-3.5 px-4 text-center">Status Presensi</th>
                 <th className="py-3.5 px-4">Jam Masuk</th>
                 <th className="py-3.5 px-4">Metode</th>
                 <th className="py-3.5 px-4 text-center">Aksi Absensi Manual</th>
@@ -687,7 +791,7 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
             <tbody className="divide-y divide-slate-100 text-xs">
               {displayedStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                  <td colSpan={10} className="text-center py-10 text-slate-400">
                     Tidak ada data siswa ditemukan untuk kriteria ini.
                   </td>
                 </tr>
@@ -716,6 +820,36 @@ export const ClassAttendanceTab: React.FC<ClassAttendanceTabProps> = ({
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-medium text-slate-700">{getRombelName(std.rombelId)}</span>
+                      </td>
+                      {/* Kolom Status Presensi Real-Time */}
+                      <td className="py-3 px-4 text-center">
+                        {status === 'belum' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-300">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            Belum Diabsen
+                          </span>
+                        )}
+                        {status === 'hadir' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Hadir
+                          </span>
+                        )}
+                        {status === 'sakit' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            Sakit (S)
+                          </span>
+                        )}
+                        {status === 'izin' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                            Izin (I)
+                          </span>
+                        )}
+                        {status === 'alfa' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                            Alfa (A)
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-600">
                         {waktu !== '-' ? (

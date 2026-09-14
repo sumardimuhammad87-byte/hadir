@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Student, Rombel, AttendanceRecord, SchoolConfig, UserAccount } from '../types';
 import { calculateAttendanceRate } from '../utils/storage';
+import { calculateEffectiveDaysInRange, getHolidayInfo, formatIndonesianDateWithDay } from '../utils/holidays';
 import { Printer, Download, Filter, Calendar, FileText, CheckCircle2, AlertTriangle, Building2, User } from 'lucide-react';
 
 interface ReportsPrintTabProps {
@@ -62,12 +63,13 @@ export const ReportsPrintTab: React.FC<ReportsPrintTabProps> = ({
   }
 
   // Determine total effective days for formula
-  // User prompt: (Jumlah Hadir / Total Hari Efektif) x 100%
-  // In daily view, total days is 1. In month/semester, calculate distinct active dates or schoolConfig.totalHariEfektifSemester.
-  const uniqueDates = Array.from(new Set(recordsInRange.map((r) => r.tanggal)));
+  // Automatically exclude national holidays & weekend non-effective days
+  const calculatedEffectiveDays = calculateEffectiveDaysInRange(startDate, endDate, schoolConfig);
   const totalDaysInRange = periodPreset === 'semester'
     ? schoolConfig.totalHariEfektifSemester
-    : Math.max(1, uniqueDates.length);
+    : Math.max(1, calculatedEffectiveDays.totalEffectiveDays);
+
+  const startHolidayInfo = getHolidayInfo(startDate, schoolConfig);
 
   // Filter student base
   const eligibleStudents = students.filter((s) => {
@@ -318,6 +320,14 @@ export const ReportsPrintTab: React.FC<ReportsPrintTabProps> = ({
             <span>
               <strong>Hari Efektif:</strong> {totalDaysInRange} Hari
             </span>
+            {periodPreset === 'today' && startHolidayInfo.isHoliday && (
+              <>
+                <span>•</span>
+                <span className="text-rose-700 font-bold bg-rose-100 border border-rose-300 px-2 py-0.5 rounded">
+                  🔴 Libur / Tanggal Merah: {startHolidayInfo.holidayName}
+                </span>
+              </>
+            )}
             {attendanceFilter === 'UNATTENDED_ONLY' && (
               <>
                 <span>•</span>
@@ -342,8 +352,8 @@ export const ReportsPrintTab: React.FC<ReportsPrintTabProps> = ({
                 <th className="py-2.5 px-2 border border-slate-300 w-12 bg-amber-50 text-amber-900">Sakit</th>
                 <th className="py-2.5 px-2 border border-slate-300 w-12 bg-sky-50 text-sky-900">Izin</th>
                 <th className="py-2.5 px-2 border border-slate-300 w-12 bg-rose-50 text-rose-900">Alfa</th>
-                <th className="py-2.5 px-3 border border-slate-300 w-24 bg-slate-200 font-extrabold text-slate-900">
-                  Persentase
+                <th className="py-2.5 px-3 border border-slate-300 w-28 bg-slate-200 font-extrabold text-slate-900">
+                  {periodPreset === 'today' ? 'Status Presensi' : 'Persentase'}
                 </th>
               </tr>
             </thead>
@@ -382,7 +392,21 @@ export const ReportsPrintTab: React.FC<ReportsPrintTabProps> = ({
                       {item.alfa}
                     </td>
                     <td className="py-2 px-3 border border-slate-300 text-center font-mono font-bold text-slate-900 bg-slate-100">
-                      {item.percentage}%
+                      {periodPreset === 'today' ? (
+                        item.hadir > 0 ? (
+                          <span className="text-emerald-700 font-bold">Hadir</span>
+                        ) : item.sakit > 0 ? (
+                          <span className="text-amber-700 font-bold">Sakit</span>
+                        ) : item.izin > 0 ? (
+                          <span className="text-sky-700 font-bold">Izin</span>
+                        ) : item.alfa > 0 ? (
+                          <span className="text-rose-700 font-bold">Alfa</span>
+                        ) : (
+                          <span className="text-slate-500 font-normal italic">Belum Diabsen</span>
+                        )
+                      ) : (
+                        `${item.percentage}%`
+                      )}
                     </td>
                   </tr>
                 ))

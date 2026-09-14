@@ -83,6 +83,8 @@ export interface SchoolConfig {
   jamMasuk: string;     // e.g. "07:00"
   jamBatasMasuk: string; // e.g. "07:30"
   totalHariEfektifSemester: number; // e.g. 100 or 120
+  hariSekolahPerminggu?: 5 | 6; // 5 = Senin-Jumat (Sabtu & Minggu libur), 6 = Senin-Sabtu
+  hariLiburKhusus?: { tanggal: string; nama: string; keterangan?: string }[]; // Libur khusus sekolah
 }
 
 export interface Teacher {

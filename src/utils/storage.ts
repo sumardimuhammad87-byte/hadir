@@ -1,5 +1,6 @@
 import { Student, Rombel, UserAccount, SchoolConfig, AttendanceRecord, AttendanceToken, AttendanceStatus, AttendanceMethod, UserRole, Teacher, Subject, ScheduleItem } from '../types';
 import { INITIAL_SCHOOL_CONFIG, INITIAL_ROMBEL, INITIAL_STUDENTS, INITIAL_USERS, INITIAL_TEACHERS, INITIAL_SUBJECTS, INITIAL_SCHEDULES, generateInitialAttendance } from '../data/initialData';
+import { syncRombelOfficersWithUserAccounts } from './officerSync';
 
 const KEYS = {
   CONFIG: 'absensi_school_config_v1',
@@ -122,16 +123,29 @@ export function saveStudentList(list: Student[]): void {
 
 // 4. Users
 export function loadUserList(): UserAccount[] {
+  let list = INITIAL_USERS;
   try {
     const raw = localStorage.getItem(KEYS.USERS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        list = parsed;
+      }
     }
   } catch (e) {
     console.error('[Storage] Gagal memuat UserList:', e);
   }
-  return INITIAL_USERS;
+
+  // Ensure single account consolidation for students & officers
+  try {
+    const rombels = loadRombelList();
+    const students = loadStudentList();
+    const synced = syncRombelOfficersWithUserAccounts(rombels, students, list);
+    return synced.updatedUsers;
+  } catch (err) {
+    console.warn('[Storage] Officer sync error:', err);
+    return list;
+  }
 }
 
 export function saveUserList(list: UserAccount[]): void {
@@ -139,39 +153,61 @@ export function saveUserList(list: UserAccount[]): void {
 }
 
 // Helper: Ensure a student has an active UserAccount for instant login
+// Automatically checks if student is assigned as Ketua Kelas or Sekretaris in any rombel
 export function ensureStudentUserAccount(
   student: Student,
-  existingUsers: UserAccount[]
+  existingUsers: UserAccount[],
+  rombels?: Rombel[]
 ): { updatedUsers: UserAccount[]; createdUser: UserAccount } {
   const cleanNipd = student.nipd.trim();
+  const currentRombels = rombels || loadRombelList();
+
+  // Check if student holds an officer position in their rombel
+  const studentRombel = currentRombels.find((r) => r.id === student.rombelId);
+  const isKetua = studentRombel?.ketuaKelasNipd === cleanNipd;
+  const isSekretaris = studentRombel?.sekretarisNipd === cleanNipd;
+
+  let assignedRole: UserRole = 'siswa';
+  let assignedJabatan = 'Siswa';
+  if (isKetua) {
+    assignedRole = 'ketua_kelas';
+    assignedJabatan = `Ketua Kelas (${studentRombel?.nama || ''})`;
+  } else if (isSekretaris) {
+    assignedRole = 'sekretaris';
+    assignedJabatan = `Sekretaris Kelas (${studentRombel?.nama || ''})`;
+  }
+
   const existingIdx = existingUsers.findIndex(
     (u) => (u.nipd && u.nipd.trim() === cleanNipd) || u.username === cleanNipd
   );
 
   if (existingIdx >= 0) {
-    // Update existing user info
+    // Update existing user info while preserving their single unified account
     const updated = [...existingUsers];
+    const prev = updated[existingIdx];
     updated[existingIdx] = {
-      ...updated[existingIdx],
+      ...prev,
       nama: student.nama,
+      role: isKetua ? 'ketua_kelas' : isSekretaris ? 'sekretaris' : prev.role === 'admin' || prev.role === 'guru' ? prev.role : 'siswa',
       rombelId: student.rombelId,
+      jabatan: assignedJabatan,
       statusAktif: student.statusAktif ?? true,
     };
     saveUserList(updated);
     return { updatedUsers: updated, createdUser: updated[existingIdx] };
   }
 
-  // Create brand new login account for this student
+  // Create brand new login account for this student (1 single account)
   const newUser: UserAccount = {
     id: `USR-STD-${cleanNipd.replace(/[^a-zA-Z0-9]/g, '')}`,
     email: `${cleanNipd.replace(/[^a-zA-Z0-9]/g, '')}@siswa.sch.id`,
     username: cleanNipd,
     nama: student.nama,
-    role: 'siswa',
-    password: '123', // Default PIN for student
+    role: assignedRole,
+    password: '123', // Default PIN for student / officer
     nipd: cleanNipd,
     rombelId: student.rombelId,
-    jabatan: 'Siswa',
+    jabatan: assignedJabatan,
     statusAktif: true,
   };
 
